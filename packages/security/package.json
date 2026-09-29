@@ -1,0 +1,28 @@
+{
+  "name": "@ai-concierge/security",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./authn": "./dist/authn/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc",
+    "test:unit": "vitest run --exclude \"**/*.security.test.ts\"",
+    "test:security": "vitest run .security.test."
+  },
+  "dependencies": {
+    "@ai-concierge/domain": "workspace:*",
+    "argon2": "^0.45.1",
+    "jose": "^6.2.0",
+    "otplib": "^13.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}
