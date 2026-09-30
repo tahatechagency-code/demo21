@@ -148,7 +148,7 @@ const FINISHED_JOURNEY_STATES: ReadonlySet<string> = new Set([
  *
  * "Finished" is derived from history that already exists rather than a new
  * column (the append-only convention every other cross-step read here uses):
- *   - Step 4 ended EXPIRED or CANCELLED, or
+ *   - Step 4 ended EXPIRED (or CANCELLED with no journey behind it), or
  *   - Step 4 reached COMPLETE and the conversation has *no* journey, or a
  *     journey that never got past the pre-eligibility states (the
  *     pre-workflow-engine behaviour, kept so old data reads the same), or
@@ -197,9 +197,11 @@ export async function findOpenConversationForCustomer(
 
   const latestMessage = conversation.messages[0];
   const latestStatus = latestMessage?.missingInfoChecks[0]?.status;
-  if (latestStatus === 'EXPIRED' || latestStatus === 'CANCELLED') return null;
+  if (latestStatus === 'EXPIRED') return null;
 
   const journeyState = conversation.journey?.state;
+  // With no journey behind it, a customer's "cancel" (Step 4 CANCELLED) is still the end of that enquiry.
+  if (latestStatus === 'CANCELLED' && journeyState === undefined) return null;
   if (journeyState !== undefined && FINISHED_JOURNEY_STATES.has(journeyState)) return null;
   if (
     latestStatus === 'COMPLETE' &&

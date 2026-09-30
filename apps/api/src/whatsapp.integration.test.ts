@@ -554,23 +554,25 @@ describe('WhatsApp webhook — integration', () => {
     expect(sideQuestionReply.reply).not.toMatch(/let us know if you'd like to book a car/i);
   });
 
-  it('acknowledges an explicit cancellation mid-booking and starts fresh on the next message', async () => {
+  it('hands an explicit cancellation mid-booking to a person and keeps the conversation', async () => {
     const from = '971507000012';
     await send(from, 'Hi');
     await send(from, 'Yes');
     await send(from, 'Lamborghini Urus');
 
     const { reply } = await send(from, 'cancel');
-    expect(reply).toMatch(/cancel/i);
+    expect(reply).toMatch(/nothing has been cancelled/i);
 
     const check = await latestMissingInfo(from);
     expect(check?.status).toBe(MissingInfoStatus.CANCELLED);
+    expect(await testApp.ctx.prisma.escalationCase.count({ where: { status: 'OPEN' } })).toBe(1);
 
+    // Cancelling is a person's decision, so the same conversation carries on.
     await send(from, 'Hi again');
     const conversations = await testApp.ctx.prisma.conversation.count({
       where: { customerRef: from },
     });
-    expect(conversations).toBe(2);
+    expect(conversations).toBe(1);
   });
 
   it('acks 200 and does nothing for a delivery-status callback (no messages array)', async () => {
