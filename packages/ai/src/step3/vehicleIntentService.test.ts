@@ -297,3 +297,31 @@ ${reply}`,
     });
   });
 });
+
+describe('VehicleIntentService: a colour-only reply narrows the earlier car', () => {
+  const x5 = (color: string): VehicleLexiconEntry => ({
+    id: `x5-${color}`,
+    make: 'BMW',
+    model: 'X5',
+    color,
+    category: 'SUV',
+    active: true,
+    availabilityStatus: 'AVAILABLE',
+  });
+  const fleet = [x5('Black'), x5('White'), { ...URUS, color: 'Black' }];
+
+  it('"BMW X5" then "the black one" is the black X5, not every black car', () => {
+    const proposal = makeService().propose('I want to rent the BMW X5\nthe black one', fleet);
+    expect(proposal.candidates.map((candidate) => candidate.lexiconEntryId)).toEqual(['x5-Black']);
+  });
+
+  it('with no earlier car, a colour alone still matches every car in that colour', () => {
+    const proposal = makeService().propose('the black one', fleet);
+    expect(proposal.candidates.length).toBeGreaterThan(1);
+  });
+
+  it('keeps the colour-only result when the earlier car does not come in that colour', () => {
+    const proposal = makeService().propose('the Urus\nthe white one', fleet);
+    expect(proposal.candidates.every((candidate) => candidate.color === 'White')).toBe(true);
+  });
+});

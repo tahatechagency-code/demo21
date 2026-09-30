@@ -425,13 +425,12 @@ describe('conversation QA — 25 scenarios', () => {
   });
 
   it('23 cancellation: with a live quote, the quote is untouched until a person acts', async () => {
-    const { sessionId, quote } = await quoted();
+    const { sessionId } = await quoted();
     const result = await chat(sessionId, 'cancel my booking');
     expect(result.escalated).toBe(true);
     expect(result.reply.text).toMatch(/nothing has been cancelled/i);
-    const row = await testApp.ctx.prisma.quote.findFirstOrThrow({
-      where: { id: quote.quote!.quoteId },
-    });
+    const row = await testApp.ctx.prisma.quote.findFirstOrThrow();
+    expect(await testApp.ctx.prisma.quote.count()).toBe(1);
     expect(row.status).toBe('ISSUED');
   });
 

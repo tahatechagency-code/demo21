@@ -265,8 +265,7 @@ export async function syncJourneyAfterMissingInfo(
       // answering, one detail at a time, which must never look like a stall
       // just because they haven't finished in 3 turns. Only an *unchanged*
       // fingerprint across turns means nothing moved.
-      const madeProgress =
-        input.collectedFingerprint !== context.missingInfoFingerprint;
+      const madeProgress = input.collectedFingerprint !== context.missingInfoFingerprint;
       context.missingInfoAttempts = madeProgress ? 1 : context.missingInfoAttempts + 1;
       context.missingInfoFingerprint = input.collectedFingerprint;
       const decision = decideMissingInfoEscalation(
@@ -292,12 +291,16 @@ export async function syncJourneyAfterMissingInfo(
       } satisfies JourneyOutcome;
     }
 
+    // A customer saying "cancel" is never acted on by the automatic steps: cancelling can release a hold
+    // or a quote with money attached, so the front door hands it to a person and the journey stays as it is.
+    if (input.missingInfoStatus === MissingInfoStatus.CANCELLED) {
+      return { journey, escalationCaseId: null, escalationTier: null } satisfies JourneyOutcome;
+    }
+
     const toState =
       input.missingInfoStatus === MissingInfoStatus.COMPLETE
         ? JourneyState.ELIGIBILITY_CHECK
-        : input.missingInfoStatus === MissingInfoStatus.EXPIRED
-          ? JourneyState.EXPIRED
-          : JourneyState.CANCELLED;
+        : JourneyState.EXPIRED;
     if (toState === JourneyState.ELIGIBILITY_CHECK) {
       context.missingInfoAttempts = 0;
       context.missingInfoFingerprint = null;

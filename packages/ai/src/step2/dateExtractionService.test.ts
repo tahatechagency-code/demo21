@@ -100,3 +100,23 @@ describe('DateExtractionService', () => {
     expect(result.pickupDate?.toISOString()).toBe('2026-11-03T15:00:00.000Z');
   });
 });
+
+describe('DateExtractionService: a later message corrects an earlier date', () => {
+  it('a return-worded date replaces the return date and keeps the pickup', () => {
+    const result = extract('from 15-19 Oct\nActually I will return it on 21 October instead');
+    expect(result.pickupDate?.toISOString()).toBe('2026-10-15T06:00:00.000Z');
+    expect(result.returnDate?.toISOString()).toBe('2026-10-21T06:00:00.000Z');
+  });
+
+  it('a pickup-worded date replaces the pickup date and keeps the return', () => {
+    const result = extract('from 15-19 Oct\nmake the pickup 16 October');
+    expect(result.pickupDate?.toISOString()).toBe('2026-10-16T06:00:00.000Z');
+    expect(result.returnDate?.toISOString()).toBe('2026-10-19T06:00:00.000Z');
+  });
+
+  it('dates given across separate messages still fill pickup then return', () => {
+    const result = extract('Urus from 15 October\nand 19 October');
+    expect(result.pickupDate?.toISOString()).toBe('2026-10-15T06:00:00.000Z');
+    expect(result.returnDate?.toISOString()).toBe('2026-10-19T06:00:00.000Z');
+  });
+});

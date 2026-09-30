@@ -186,10 +186,38 @@ export class VehicleIntentService {
     const lines = text.split('\n');
     for (let i = lines.length - 1; i >= 0; i -= 1) {
       const proposal = this.proposeForSingleMessage(lines[i] as string, lexicon);
-      if (proposal.candidates.length > 0) return proposal;
+      if (proposal.candidates.length > 0) {
+        return this.narrowByEarlierMention(proposal, lines.slice(0, i), lexicon);
+      }
     }
 
     return { candidates: [], rawMention: this.findGenericVehiclePhrase(text) };
+  }
+
+  /**
+   * "the black one" after "BMW X5" means the black BMW X5: a colour-only reply narrows the car named
+   * in an earlier message instead of matching every black car in the fleet. With no earlier mention
+   * (or none in that colour) the colour-only proposal stands.
+   */
+  private narrowByEarlierMention(
+    proposal: VehicleIntentProposal,
+    earlierLines: string[],
+    lexicon: VehicleLexiconEntry[],
+  ): VehicleIntentProposal {
+    if (proposal.candidates[0]?.matchType !== VehicleMatchType.COLOR_ONLY) return proposal;
+    const colours = new Set(proposal.candidates.map((candidate) => candidate.color));
+    for (let i = earlierLines.length - 1; i >= 0; i -= 1) {
+      const earlier = this.proposeForSingleMessage(earlierLines[i] as string, lexicon);
+      if (
+        earlier.candidates.length === 0 ||
+        earlier.candidates[0]?.matchType === VehicleMatchType.COLOR_ONLY
+      ) {
+        continue;
+      }
+      const narrowed = earlier.candidates.filter((candidate) => colours.has(candidate.color));
+      return narrowed.length > 0 ? { candidates: narrowed, rawMention: null } : proposal;
+    }
+    return proposal;
   }
 
   /** Tiered, mutually-exclusive matching (exact model > brand only > category only > typo-tolerant fuzzy) for one message's text. */

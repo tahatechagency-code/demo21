@@ -7,6 +7,11 @@ const DEFAULT_LOCAL_HOUR = 10;
 
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
+/** Wording that says a lone date is the return / the pickup. */
+const RETURN_CUE_RE =
+  /\b(?:return|returning|drop ?-?off|bring (?:it )?back|give (?:it )?back|until|till|back on)\b/i;
+const PICKUP_CUE_RE = /\b(?:pick ?-?up|collect|start|begin|from)\b/i;
+
 const VAGUE_RELATIVE_RE =
   /\b(next week|next month|sometime|soon|later|in a few days|one of these days)\b/i;
 const BARE_WEEKDAY_RE = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i;
@@ -66,7 +71,40 @@ export interface DateExtractionOptions {
  * the result.
  */
 export class DateExtractionService {
+  /**
+   * `rawText` may be an accumulated transcript, one message per line. Read message by message so a
+   * later correction wins ("actually I will return it on 21 October"), instead of the first two dates
+   * in the whole transcript being fixed forever. A single date in a message is assigned by its
+   * wording (return/drop-off cue -> return date, pickup cue -> pickup date); without a cue it fills
+   * the first empty slot, exactly as before.
+   */
   extract(rawText: string, options: DateExtractionOptions): DateExtractionOutcome {
+    const lines = rawText.split('\n').filter((line) => line.trim().length > 0);
+    if (lines.length < 2) return this.extractFromText(rawText, options);
+
+    let pickupDate: Date | null = null;
+    let returnDate: Date | null = null;
+    const ambiguities: Ambiguity[] = [];
+    const impossibleDateMentions: string[] = [];
+    for (const line of lines) {
+      const outcome = this.extractFromText(line, options);
+      ambiguities.push(...outcome.ambiguities);
+      impossibleDateMentions.push(...outcome.impossibleDateMentions);
+      if (outcome.pickupDate && outcome.returnDate) {
+        pickupDate = outcome.pickupDate;
+        returnDate = outcome.returnDate;
+      } else if (outcome.pickupDate) {
+        if (RETURN_CUE_RE.test(line)) returnDate = outcome.pickupDate;
+        else if (PICKUP_CUE_RE.test(line) || pickupDate === null) pickupDate = outcome.pickupDate;
+        else if (returnDate === null && outcome.pickupDate.getTime() !== pickupDate.getTime()) {
+          returnDate = outcome.pickupDate;
+        }
+      }
+    }
+    return { pickupDate, returnDate, ambiguities, impossibleDateMentions };
+  }
+
+  private extractFromText(rawText: string, options: DateExtractionOptions): DateExtractionOutcome {
     const ambiguities: Ambiguity[] = [];
     const impossibleDateMentions: string[] = [];
     const tokens: DateToken[] = [];
