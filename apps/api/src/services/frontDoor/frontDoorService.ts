@@ -359,6 +359,7 @@ async function runGeminiLayer(
     message: input.message,
     recentTurns: input.turns,
     facts,
+    allowContinueBooking: classification.requiredAction === RequiredAction.ASK_GEMINI,
   });
   ctx.logger.info(
     {

@@ -333,3 +333,24 @@ describe('checkGrounding', () => {
     expect(checkGrounding('AED 14,700 for 5 days', draft)).toBe('UNGROUNDED_NUMBER');
   });
 });
+
+describe('checkGrounding: the rewriter never rules on eligibility', () => {
+  const draft = {
+    text: 'Which car would you like, and when?',
+    mustIncludeNumbers: [],
+    isHumanHandoff: false,
+  };
+
+  it('rejects an age/licence ruling the draft did not contain', () => {
+    expect(checkGrounding('Age 22 is totally fine for our Ferraris. Which one?', draft)).toBe(
+      'ELIGIBILITY_CLAIM',
+    );
+    expect(checkGrounding('Yes, you can definitely rent one. Which car?', draft)).toBe(
+      'ELIGIBILITY_CLAIM',
+    );
+  });
+
+  it('still allows ordinary rewording', () => {
+    expect(checkGrounding('Which car would you like, and for when?', draft)).toBeNull();
+  });
+});

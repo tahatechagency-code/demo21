@@ -361,6 +361,9 @@ const NON_ASCII_DIGIT = /(?![0-9])\p{Nd}/u;
 /** Nothing in this system confirms, reserves or takes payment for a booking on its own. */
 const BOOKING_OVERCLAIM =
   /\b(?:booking (?:is |has been )?confirmed|has been booked|is booked|reservation (?:is |has been )?confirmed|you(?:'|’)?re all set|payment (?:received|confirmed)|has been reserved|is now reserved)\b/i;
+/** The rewriter only rewords a draft: a ruling on age, licence or eligibility belongs to the policy, not to it. */
+const ELIGIBILITY_CLAIM =
+  /\b(?:age|old|eligible|allowed|permitted|licen[cs]e)\b.{0,40}\b(?:fine|ok|okay|no problem|perfect|definitely|totally|not an issue)\b|\b(?:definitely|totally|absolutely) (?:can|could|allowed)\b|\b(?:can|could) (?:definitely|totally|absolutely)\b/i;
 /** A hand-off must not promise how fast a person will answer. */
 const TIMEFRAME_PROMISE =
   /\b(?:within|in|after)\s+(?:the next\s+)?(?:\d+|a|an|one|two|three|five|ten)\s*(?:min|minute|hour|hr|day)s?\b/i;
@@ -375,6 +378,8 @@ export function checkGrounding(
   if (NON_ASCII_DIGIT.test(reply)) return 'NON_ASCII_DIGITS';
   if (LINK_OR_CONTACT.test(reply) && !LINK_OR_CONTACT.test(draft.text)) return 'UNEXPECTED_LINK';
   if (BOOKING_OVERCLAIM.test(reply)) return 'BOOKING_OVERCLAIM';
+  if (ELIGIBILITY_CLAIM.test(reply) && !ELIGIBILITY_CLAIM.test(draft.text))
+    return 'ELIGIBILITY_CLAIM';
   if (draft.isHumanHandoff && TIMEFRAME_PROMISE.test(reply)) return 'TIMEFRAME_PROMISE';
 
   const allowed = numbersIn(draft.text);

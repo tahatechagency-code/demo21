@@ -80,7 +80,8 @@ Choose exactly one route:
   methods are accepted is intent FAQ.
 
 Answer the actual question. Worked examples (do the same kind of reasoning):
-- "I'm 22, can I rent a Ferrari?": the Ferrari is a tier in DRIVER REQUIREMENTS with a higher minimum
+- "I'm 22, can I rent a Ferrari?" (any "can I / am I allowed to rent ..." is a QUESTION, answer it
+  first, never pass it to the booking system): the Ferrari is a tier in DRIVER REQUIREMENTS with a higher minimum
   age than 22, so say no for that car, give the required age, and offer cars they can rent. Compare
   numbers exactly and never say yes when the rule says no.
 - "what papers do I need": ANSWER from DRIVER REQUIREMENTS (licence types, passport).
@@ -110,6 +111,11 @@ export interface ConciergeTurnInput {
   message: string;
   recentTurns: { role: 'customer' | 'assistant'; content: string }[];
   facts: FactsPack;
+  /**
+   * False when the rules already recognised the message as a question (policy, documents, business
+   * topic): the booking system cannot answer those, so CONTINUE_BOOKING is not an allowed route.
+   */
+  allowContinueBooking: boolean;
 }
 
 /** A reply that says "I'll ask the team" is a hand-over, whatever route the model named. */
@@ -128,7 +134,10 @@ export async function runConciergeTurn(
     })
     .join('\n');
   const customerText = sanitizeForProcessing(input.message).sanitizedText;
-  const prompt = `FACTS:\n${input.facts.text}\n\nCHAT SO FAR:\n${transcript}\n\nLATEST CUSTOMER MESSAGE:\n${customerText}`;
+  const routeNote = input.allowContinueBooking
+    ? ''
+    : '\n\nNOTE: this message is a QUESTION. Choose ANSWER (from FACTS) or HUMAN. CONTINUE_BOOKING is not allowed.';
+  const prompt = `FACTS:\n${input.facts.text}\n\nCHAT SO FAR:\n${transcript}\n\nLATEST CUSTOMER MESSAGE:\n${customerText}${routeNote}`;
 
   let json: unknown;
   try {
@@ -176,6 +185,15 @@ export async function runConciergeTurn(
     });
 
   if (route === 'CONTINUE_BOOKING') {
+    if (!input.allowContinueBooking) {
+      return {
+        kind: 'HUMAN',
+        reply: null,
+        note: 'Gemini sent a question to the booking flow, which cannot answer it',
+        failed: false,
+        intent,
+      };
+    }
     return confidence >= MIN_ANSWER_CONFIDENCE
       ? { kind: 'CONTINUE_BOOKING', intent, confidence }
       : {

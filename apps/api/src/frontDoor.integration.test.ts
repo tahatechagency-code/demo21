@@ -335,6 +335,18 @@ describe('front door — integration', () => {
     expect(result.escalated).toBe(false);
   });
 
+  it('a rules question is never passed on to the booking flow: Gemini answers it or a person does', async () => {
+    gemini.interpretation = turn({
+      route: 'CONTINUE_BOOKING',
+      intent: 'BOOKING',
+      confidence: 0.95,
+    });
+    const result = await chat(randomUUID(), 'I am 22, can I rent a Ferrari?');
+    expect(gemini.interpretationCalls).toBe(1);
+    expect(gemini.lastPrompt).toContain('CONTINUE_BOOKING is not allowed');
+    expect(result.escalated).toBe(true);
+  });
+
   it('an answer that promises the team will ask is treated as the hand-over it is', async () => {
     gemini.interpretation = turn({
       reply: 'I am not sure about the insurance details, so I will ask our team to confirm.',
