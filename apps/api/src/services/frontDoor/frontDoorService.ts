@@ -56,7 +56,10 @@ export interface FrontDoorOverride {
 
 const MAX_CARS_LISTED = 6;
 
-export function phaseOf(progress: JourneyProgress, collected: CollectedBookingInfo): ConversationPhaseValue {
+export function phaseOf(
+  progress: JourneyProgress,
+  collected: CollectedBookingInfo,
+): ConversationPhaseValue {
   switch (progress.stage) {
     case 'HUMAN_REVIEW':
     case 'ESCALATED_WAITING':
@@ -66,7 +69,10 @@ export function phaseOf(progress: JourneyProgress, collected: CollectedBookingIn
     case 'LATER_STAGE':
       return ConversationPhase.QUOTED;
     case 'STEP4_PENDING':
-      return collected.vehicle || collected.pickupDate || collected.returnDate || collected.pickupLocation
+      return collected.vehicle ||
+        collected.pickupDate ||
+        collected.returnDate ||
+        collected.pickupLocation
         ? ConversationPhase.COLLECTING
         : ConversationPhase.NO_CONTEXT;
     default:
@@ -79,13 +85,41 @@ function joinNames(names: string[]): string {
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
+/** "What cars do you have?" — the whole catalogue, answered from the database. */
+const FLEET_QUESTION_RE =
+  /\b(?:what|which)\b.{0,20}\b(?:cars|vehicles|models|makes|brands)\b|\byour (?:fleet|cars|collection|lineup)\b/i;
+
+async function fleetReply(ctx: AppContext): Promise<string | null> {
+  const vehicles = (
+    await listVehicles(ctx.prisma, {
+      tenantId: ctx.config.DEFAULT_TENANT_ID,
+      limit: 100,
+      offset: 0,
+    })
+  ).filter((vehicle) => vehicle.active);
+  const byMake = new Map<string, Set<string>>();
+  for (const vehicle of vehicles) {
+    byMake.set(vehicle.make, (byMake.get(vehicle.make) ?? new Set()).add(vehicle.model));
+  }
+  if (byMake.size === 0) return null;
+  const list = [...byMake.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([make, models]) => `${make} (${[...models].sort().join(', ')})`)
+    .join('; ');
+  return `We offer: ${list}. Tell me which one catches your eye and I can share photos, prices and availability.`;
+}
+
 async function priceReply(
   ctx: AppContext,
   input: FrontDoorInput,
   options: { askWhichCar: boolean },
 ): Promise<string | null> {
   const vehicles = (
-    await listVehicles(ctx.prisma, { tenantId: ctx.config.DEFAULT_TENANT_ID, limit: 100, offset: 0 })
+    await listVehicles(ctx.prisma, {
+      tenantId: ctx.config.DEFAULT_TENANT_ID,
+      limit: 100,
+      offset: 0,
+    })
   ).filter((vehicle) => vehicle.active);
   const catalog = vehicles.map((vehicle) => ({
     id: vehicle.id,
@@ -159,7 +193,8 @@ function handOffFor(intent: FrontDoorIntentValue, entities: FrontDoorEntities): 
       return {
         reason: EscalationReason.DAMAGE_OR_DISPUTE,
         tier: EscalationTier.T3,
-        reply: "I'm sorry to hear that. I've passed this to our team right away and they'll be in touch here.",
+        reply:
+          "I'm sorry to hear that. I've passed this to our team right away and they'll be in touch here.",
       };
     case FrontDoorIntent.MODIFY_BOOKING:
       return {
@@ -296,6 +331,15 @@ export async function runFrontDoor(
     'front door decision',
   );
 
+  if (
+    phase !== ConversationPhase.QUOTED &&
+    classification.requiredAction === RequiredAction.CONTINUE_PIPELINE &&
+    FLEET_QUESTION_RE.test(input.message)
+  ) {
+    const text = await fleetReply(ctx);
+    if (text) return { text, escalated: false };
+  }
+
   switch (classification.requiredAction) {
     case RequiredAction.ESCALATE_HUMAN:
       // An explicit "talk to a person" is escalated by the journey autopilot already.
@@ -314,9 +358,7 @@ export async function runFrontDoor(
       );
       if (!photos) return null;
       const next =
-        photos.attachments.length > 0
-          ? "\n\nTell me your dates and I'll check availability."
-          : '';
+        photos.attachments.length > 0 ? "\n\nTell me your dates and I'll check availability." : '';
       return { text: `${photos.text}${next}`, escalated: false, attachments: photos.attachments };
     }
     case RequiredAction.ANSWER_PRICE: {

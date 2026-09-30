@@ -167,6 +167,12 @@ describe('front door — integration', () => {
     expect(withPhoto.reply.attachments[0]!.caption).toMatch(/BMW X5 \(Black\)/i);
   });
 
+  it('lists the fleet from the catalogue when asked what cars there are', async () => {
+    const result = await chat(randomUUID(), 'what cars do you have?');
+    expect(result.reply.text).toMatch(/BMW \(X5\); Ferrari \(Roma\)/);
+    expect(result.escalated).toBe(false);
+  });
+
   it('turns a pickup change with no booking into a question, not a fake change', async () => {
     const result = await chat(randomUUID(), 'Actually can you move pickup to 7 pm?');
     expect(result.escalated).toBe(false);
