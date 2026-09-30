@@ -252,6 +252,18 @@ describe('front door — integration', () => {
     expect(gemini.interpretationCalls).toBe(0);
   });
 
+  it('reads a short reply as the answer to the question we just asked', async () => {
+    const session = randomUUID();
+    const asked = await chat(session, 'what cars do you have?');
+    expect(asked.reply.text).toMatch(/We offer/);
+    // Our list ends "…availability." (no question), so an odd reply is still unknown.
+    const question = await chat(session, 'I want to book');
+    expect(question.reply.text).toContain('?');
+    const answer = await chat(session, 'the blue one');
+    expect(answer.escalated).toBe(false);
+    expect(gemini.interpretationCalls).toBe(0);
+  });
+
   it('a lone "yes" with no conversation is not escalated', async () => {
     const result = await chat(randomUUID(), 'yes');
     expect(result.escalated).toBe(false);

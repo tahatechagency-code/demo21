@@ -47,7 +47,7 @@ const SINGLE_CAPITALIZED_WORD_RE = /\b[A-Z][a-zA-Z]+\b/g;
  * a spaceship") that the capitalized-phrase heuristic above would miss.
  */
 const GENERIC_MENTION_RE =
-  /\b(?:book|rent|hire|need|want)(?:\s+to\s+(?:book|rent|hire))?\s+(?:an?\s+)?([a-zA-Z][a-zA-Z\s]{1,40}?)(?=\s+(?:for|from|on|in|please|now|today|tomorrow|asap)\b|[.,!?]|$)/i;
+  /\b(?:book|rent|hire|need|want)(?:[ \t]+to[ \t]+(?:book|rent|hire))?[ \t]+(?:an?[ \t]+)?([a-zA-Z][a-zA-Z \t]{1,40}?)(?=[ \t]+(?:for|from|on|in|please|now|today|tomorrow|asap)\b|[.,!?\n]|$)/i;
 
 /**
  * "model X" / "car model X" / "model: X", case-insensitive — catches a

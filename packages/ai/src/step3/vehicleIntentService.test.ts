@@ -167,6 +167,25 @@ describe('VehicleIntentService', () => {
     expect(proposal.rawMention).toBeNull();
   });
 
+  it('NO_VEHICLE_MENTIONED: a reply after "book" is never read as the car being booked', () => {
+    // buildAccumulatedTranscript puts each message on its own line: "book" then "yes" is two messages.
+    for (const reply of ['yes', 'no', 'ok', 'tomorrow']) {
+      const proposal = makeService().propose(
+        `book
+${reply}`,
+        FLEET,
+      );
+      expect(proposal.candidates).toHaveLength(0);
+      expect(proposal.rawMention).toBeNull();
+    }
+  });
+
+  it('still finds an unknown car named within one message', () => {
+    expect(makeService().propose('I want to rent a spaceship for 3 days', FLEET).rawMention).toBe(
+      'spaceship',
+    );
+  });
+
   it('NO_VEHICLE_MENTIONED: a capitalized word starting a later message in the transcript is still sentence-initial, not a vehicle mention', () => {
     const proposal = makeService().propose('Hi\nWhat documents do I need?', FLEET);
     expect(proposal.candidates).toHaveLength(0);
@@ -250,7 +269,7 @@ describe('VehicleIntentService', () => {
       });
     });
 
-    it('FUZZY_MATCH: a later, lowercase, typo\'d correction wins over an earlier brand-only mention (full reported conversation)', () => {
+    it("FUZZY_MATCH: a later, lowercase, typo'd correction wins over an earlier brand-only mention (full reported conversation)", () => {
       const proposal = makeService().propose(
         [
           'Hii',
@@ -276,6 +295,5 @@ describe('VehicleIntentService', () => {
         matchType: 'BRAND_ONLY',
       });
     });
-
   });
 });

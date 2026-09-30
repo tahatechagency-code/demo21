@@ -56,6 +56,25 @@ export interface FrontDoorOverride {
 
 const MAX_CARS_LISTED = 6;
 
+const MAX_WORDS_FOR_ANSWER = 5;
+
+/**
+ * The conversation itself decides what a short message means: when our last
+ * message asked the customer something, a brief reply is their answer to it
+ * (even before any booking detail has been collected), never a new, unknown request.
+ */
+function withOpenQuestion(
+  phase: ConversationPhaseValue,
+  input: FrontDoorInput,
+): ConversationPhaseValue {
+  if (phase !== ConversationPhase.NO_CONTEXT) return phase;
+  const lastReply = [...input.turns].reverse().find((turn) => turn.role === 'assistant');
+  const words = input.message.trim().split(/s+/).length;
+  return lastReply?.content.trim().endsWith('?') && words <= MAX_WORDS_FOR_ANSWER
+    ? ConversationPhase.COLLECTING
+    : phase;
+}
+
 export function phaseOf(
   progress: JourneyProgress,
   collected: CollectedBookingInfo,
@@ -273,7 +292,7 @@ export async function runFrontDoor(
   ctx: AppContext,
   input: FrontDoorInput,
 ): Promise<FrontDoorOverride | null> {
-  const phase = phaseOf(input.progress, input.collected);
+  const phase = withOpenQuestion(phaseOf(input.progress, input.collected), input);
   // A person already owns this conversation.
   if (phase === ConversationPhase.ESCALATED) return null;
 
