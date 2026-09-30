@@ -337,8 +337,16 @@ const GEMINI_ANSWERED_INTENTS: readonly FrontDoorIntentValue[] = [
   FrontDoorIntent.FAQ,
   FrontDoorIntent.DOCUMENTS,
   FrontDoorIntent.DELIVERY_PICKUP,
-  FrontDoorIntent.RETURN,
 ];
+
+/** "Return it on 21 October" gives a detail; "can I return it late?" asks something. Only questions are Gemini's. */
+const QUESTION_SHAPED =
+  /\?|^\s*(?:what|which|how|where|when|why|who|can|could|do|does|is|are|will|would|should|may)\b/i;
+
+/** Mid-booking, a message is a question for Gemini only if it is shaped like one; with no booking open, any of them is. */
+function isQuestionForGemini(input: FrontDoorInput, phase: ConversationPhaseValue): boolean {
+  return phase === ConversationPhase.NO_CONTEXT || QUESTION_SHAPED.test(input.message);
+}
 
 const GENERIC_HANDOFF_TEXT =
   "I'm not certain about that and I'd rather not guess, so I've asked a member of our team to reply to you here.";
@@ -444,6 +452,7 @@ export async function runFrontDoor(
   // facts, whichever booking-style rule also matched.
   if (
     phase !== ConversationPhase.QUOTED &&
+    isQuestionForGemini(input, phase) &&
     detectFaqTopic(input.message) !== null &&
     (classification.requiredAction === RequiredAction.CONTINUE_PIPELINE ||
       classification.requiredAction === RequiredAction.ANSWER_PRICE)
@@ -483,6 +492,7 @@ export async function runFrontDoor(
       // A recognised side question outside a live quote is answered by Gemini from the facts.
       if (
         phase !== ConversationPhase.QUOTED &&
+        isQuestionForGemini(input, phase) &&
         GEMINI_ANSWERED_INTENTS.includes(classification.intent)
       ) {
         return runGeminiLayer(ctx, input, classification, phase);
