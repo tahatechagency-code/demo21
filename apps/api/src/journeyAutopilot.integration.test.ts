@@ -400,11 +400,11 @@ describe('automatic Steps 5-8 chain — integration', () => {
       await seedPolicy();
       const from = '971501110011';
 
-      // Four turns of one-field-at-a-time booking trips Step 4's stall alert (3 attempts).
-      await say(from, 'Hi');
-      await say(from, 'Yes');
-      const vehicleReply = await say(from, 'Lamborghini Urus');
-      const nudged = await say(from, 'hmm ok');
+      // Repeating the request without adding any new detail trips Step 4's stall alert (3 unchanged attempts).
+      await say(from, 'I want to rent a car');
+      await say(from, 'Yes please, I want to rent a car');
+      const vehicleReply = await say(from, 'I would like to hire a car');
+      const nudged = await say(from, 'I need to rent a car');
       const { journey: stalled } = await journeyFor(from);
       expect(stalled?.state).toBe('ESCALATED');
       expect(await testApp.ctx.prisma.escalationCase.count({ where: { status: 'OPEN' } })).toBe(1);
@@ -412,7 +412,10 @@ describe('automatic Steps 5-8 chain — integration', () => {
       expect(nudged).toBe(vehicleReply);
       expect(nudged).not.toMatch(/already looking after/i);
 
-      const asksDetails = await say(from, 'from 15 October to 19 October, pickup Dubai Marina');
+      const asksDetails = await say(
+        from,
+        'Lamborghini Urus from 15 October to 19 October, pickup Dubai Marina',
+      );
       expect(asksDetails).toMatch(/date of birth/i);
       const { journey } = await journeyFor(from);
       expect(journey?.state).toBe('ELIGIBILITY_CHECK');

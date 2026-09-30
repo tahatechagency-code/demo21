@@ -381,6 +381,7 @@ describe('web chat + dashboard surfaces — integration', () => {
             resolvedVehicleId: null,
             quoteId: null,
             missingInfoAttempts: 0,
+            missingInfoFingerprint: null,
           },
         },
       });
