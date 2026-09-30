@@ -8,7 +8,9 @@ const FIELD_PHRASES: Record<RequiredFieldValue, (detail?: string) => string> = {
   [RequiredField.PICKUP_LOCATION]: (detail) =>
     detail ? `your pickup location (${detail})` : 'where you would like to pick up the car',
   [RequiredField.VEHICLE]: (detail) =>
-    detail ? `which vehicle you would like (${detail})` : 'which vehicle you would like to rent',
+    detail && !/no vehicle preference/i.test(detail)
+      ? `which vehicle you would like (${detail})`
+      : 'which vehicle you would like to rent',
 };
 
 function joinWithOxfordComma(phrases: string[]): string {
