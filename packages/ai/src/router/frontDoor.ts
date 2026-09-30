@@ -205,9 +205,11 @@ const RULES: Rule[] = [
   ),
   rule(
     'PAYMENT_REFUND',
-    0.82,
-    /\b(?:pay|paid|payment|invoice|deposit|bank transfer|card declined|payment link)\b/,
+    0.9,
+    /\b(?:card declined|payment (?:failed|problem|issue|error)|transaction failed|paid twice|wrong amount)\b/,
   ),
+  // Ordinary payment questions ("what deposit do I pay?") are answered by the booking flow, not a person.
+  rule('FAQ', 0.8, /\b(?:pay|paid|payment|invoice|deposit|bank transfer|payment link)\b/),
   rule(
     'COMPLAINT_DAMAGE',
     0.94,
@@ -385,7 +387,7 @@ export function classifyFrontDoor(
       secondaryIntents: [],
       entities,
       requiredAction:
-        context.phase === ConversationPhase.COLLECTING
+        context.phase !== ConversationPhase.NO_CONTEXT
           ? RequiredAction.CONTINUE_PIPELINE
           : RequiredAction.ASK_GEMINI,
       conversationPhase: context.phase,

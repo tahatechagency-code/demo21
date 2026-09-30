@@ -106,3 +106,26 @@ describe('front door: context-dependent short messages', () => {
     expect(intentOf('forget the BMW, how much is the Ferrari', collecting)).toBe(I.PRICING);
   });
 });
+
+describe('front door: an unclear message inside an open journey', () => {
+  it('stays with the booking pipeline in every phase except none', () => {
+    for (const phase of [ConversationPhase.COLLECTING, ConversationPhase.QUOTED]) {
+      expect(classifyFrontDoor('3 April 1990', { phase }).requiredAction).toBe(
+        RequiredAction.CONTINUE_PIPELINE,
+      );
+    }
+    expect(classifyFrontDoor('3 April 1990', none).requiredAction).toBe(RequiredAction.ASK_GEMINI);
+  });
+});
+
+describe('front door: payments', () => {
+  it('answers ordinary payment questions in the flow but hands payment problems to a person', () => {
+    const deposit = classifyFrontDoor('what deposit do I need to pay?', {
+      phase: ConversationPhase.QUOTED,
+    });
+    expect(deposit.requiredAction).toBe(RequiredAction.CONTINUE_PIPELINE);
+    const failed = classifyFrontDoor('my card declined and I was charged twice', none);
+    expect(failed.intent).toBe(I.PAYMENT_REFUND);
+    expect(failed.requiredAction).toBe(RequiredAction.ESCALATE_HUMAN);
+  });
+});

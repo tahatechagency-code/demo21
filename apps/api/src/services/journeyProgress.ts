@@ -56,5 +56,3 @@ export type JourneyProgress =
   /** A later journey step (documents, payment, ...) that has no automation yet. */
   | { stage: 'LATER_STAGE'; state: JourneyStateValue }
   | { stage: 'CLOSED'; state: JourneyStateValue };
-
-export type JourneyProgressStage = JourneyProgress['stage'];

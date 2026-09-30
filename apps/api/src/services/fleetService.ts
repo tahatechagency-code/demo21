@@ -9,7 +9,6 @@ import {
   deleteVehiclePhoto,
   findVehiclesByIds,
   listPhotosForVehicles,
-  listVehicles,
   normalizeVehicleName,
   updateVehicle,
   type PrismaClient,
@@ -64,14 +63,6 @@ async function withPhotos(
       .filter((photo) => photo.vehicleId === vehicle.id)
       .map((photo) => toVehiclePhoto(deps.publicBaseUrl, photo)),
   }));
-}
-
-export async function listFleet(
-  deps: FleetServiceDeps,
-  input: { tenantId: TenantId; limit: number; offset: number },
-): Promise<FleetVehicle[]> {
-  const vehicles = await listVehicles(deps.prisma, input);
-  return withPhotos(deps, input.tenantId, vehicles);
 }
 
 async function getFleetVehicle(
