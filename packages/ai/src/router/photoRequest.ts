@@ -66,15 +66,16 @@ export function matchNamedVehicles(
   catalog: PhotoCatalogEntry[],
 ): PhotoCatalogEntry[] {
   const haystack = normalize(text);
-  const matched = catalog.filter((entry) => {
-    const model = normalize(entry.model);
-    const make = normalize(entry.make);
-    return (
+  const specific = catalog.filter(
+    (entry) =>
       containsPhrase(haystack, normalize(entry.name)) ||
-      containsPhrase(haystack, model) ||
-      containsPhrase(haystack, make)
-    );
-  });
+      containsPhrase(haystack, normalize(entry.model)),
+  );
+  // A make alone ("your BMWs") matches every car of it, but never widens a match that already names a model.
+  const matched =
+    specific.length > 0
+      ? specific
+      : catalog.filter((entry) => containsPhrase(haystack, normalize(entry.make)));
 
   const byColor = matched.filter((entry) => containsPhrase(haystack, normalize(entry.color)));
   return byColor.length > 0 ? byColor : matched;

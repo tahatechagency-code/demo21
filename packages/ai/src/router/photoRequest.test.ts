@@ -96,3 +96,29 @@ describe('matchNamedVehicles', () => {
     expect(matchNamedVehicles('send me a photo', catalog)).toEqual([]);
   });
 });
+
+describe('matchNamedVehicles: a named model is not widened to its make', () => {
+  const entry = (make: string, model: string, color: string) => ({
+    id: `${make}-${model}-${color}`,
+    make,
+    model,
+    color,
+    name: `${make} ${model}`,
+    photos: [],
+  });
+  const catalog = [
+    entry('BMW', 'X5', 'Black'),
+    entry('BMW', 'X7', 'Black'),
+    entry('BMW', 'M5', 'Blue'),
+  ];
+
+  it('returns only the named model', () => {
+    expect(matchNamedVehicles('How much is the BMW X5?', catalog).map((e) => e.model)).toEqual([
+      'X5',
+    ]);
+  });
+
+  it('still returns every car of a make when only the make is named', () => {
+    expect(matchNamedVehicles('show me your BMWs, bmw please', catalog)).toHaveLength(3);
+  });
+});

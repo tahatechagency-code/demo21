@@ -285,7 +285,7 @@ const RULES: Rule[] = [
   rule(
     'CONTINUATION',
     0.9,
-    /^(?:the )?(?:yes|yeah|yep|yup|ok|okay|sure|no|nope|nah|that one|this one|the first(?: one)?|the second(?: one)?|the last(?: one)?|first|second|white|black|red|blue|grey|gray|silver|green|today|tomorrow|day after tomorrow|next week|thanks|thank you|please|haan|nahi|theek hai)(?:\s+\w+){0,2}$/,
+    /^(?:(?:ok|okay|yes|yeah|sure)\s+)?(?:the )?(?:yes|yeah|yep|yup|ok|okay|sure|no|nope|nah|that one|this one|the first(?: one)?|the second(?: one)?|the last(?: one)?|first|second|white|black|red|blue|grey|gray|silver|green|today|tomorrow|day after tomorrow|next week|thanks|thank you|please|haan|nahi|theek hai)(?:\s+\w+){0,2}$/,
   ),
 ];
 

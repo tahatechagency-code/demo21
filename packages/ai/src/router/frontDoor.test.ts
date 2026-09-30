@@ -129,3 +129,12 @@ describe('front door: payments', () => {
     expect(failed.requiredAction).toBe(RequiredAction.ESCALATE_HUMAN);
   });
 });
+
+describe('front door: short replies with a filler word', () => {
+  it('reads "ok the white one" as an answer to an open question, not an unknown message', () => {
+    expect(classifyFrontDoor('ok the white one', collecting).intent).toBe(I.CONTINUATION);
+    expect(classifyFrontDoor('ok the white one', none).requiredAction).toBe(
+      RequiredAction.CONTINUE_PIPELINE,
+    );
+  });
+});
