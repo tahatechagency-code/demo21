@@ -20,8 +20,8 @@ export const customerSchema = z.object({
   customerRef: z.string().min(1).max(200),
   displayName: z.string().min(1).max(200).nullable(),
   /** What the customer told us (or the channel itself is) — the target of automatic email/SMS. */
-  email: z.string().min(3).max(254).nullable(),
-  phone: z.string().min(6).max(20).nullable(),
+  email: z.string().min(3).max(254).nullable().default(null),
+  phone: z.string().min(6).max(20).nullable().default(null),
   lastVehicleId: z.string().uuid().nullable(),
   lastQuoteId: z.string().uuid().nullable(),
   bookingCount: z.number().int().nonnegative(),
