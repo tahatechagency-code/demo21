@@ -365,7 +365,13 @@ async function runGeminiLayer(
     {
       requestId: input.requestId,
       conversationId: input.conversationId,
-      frontDoor: { source: 'gemini', phase, kind: turn.kind, intent: turn.intent },
+      frontDoor: {
+        source: 'gemini',
+        phase,
+        kind: turn.kind,
+        intent: turn.intent,
+        note: turn.kind === 'HUMAN' ? turn.note : undefined,
+      },
     },
     'front door gemini turn',
   );
@@ -373,8 +379,15 @@ async function runGeminiLayer(
   if (turn.kind === 'ANSWER') return { text: turn.reply, escalated: false };
   if (turn.kind === 'CONTINUE_BOOKING') return null;
 
-  // A recognised message whose Gemini answer could not be produced (no key, outage) keeps the booking flow's own reply.
-  if (turn.failed && classification.requiredAction !== RequiredAction.ASK_GEMINI) return null;
+  // With no Gemini key at all, the booking flow's deterministic template is the honest reply to a
+  // recognised message. A failed call is not: its free-text rewrite could invent an answer, so a person takes over.
+  if (
+    turn.kind === 'HUMAN' &&
+    turn.failure === 'NOT_CONFIGURED' &&
+    classification.requiredAction !== RequiredAction.ASK_GEMINI
+  ) {
+    return null;
+  }
 
   // Gemini named a risky intent: the fixed, reviewed hand-over wording applies, not its own words.
   if (handOffFor(turn.intent, {}) !== null) {

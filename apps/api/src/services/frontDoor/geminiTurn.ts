@@ -5,6 +5,7 @@ import {
   type AIProvider,
   type FrontDoorIntentValue,
 } from '@ai-concierge/ai';
+import { isAppError } from '@ai-concierge/domain';
 import { z } from 'zod';
 import type { FactsPack } from './factsPack.js';
 
@@ -103,8 +104,8 @@ export type ConciergeTurn =
       reply: string | null;
       note: string;
       intent: FrontDoorIntentValue;
-      /** True when Gemini never produced a usable answer (down, timeout, off-schema), as opposed to choosing a person. */
-      failed: boolean;
+      /** Set when Gemini never produced a usable answer (no key / down, timeout, off-schema), as opposed to choosing a person. */
+      failure?: 'NOT_CONFIGURED' | 'ERROR';
     };
 
 export interface ConciergeTurnInput {
@@ -152,12 +153,14 @@ export async function runConciergeTurn(
         timeoutMs: GEMINI_TIMEOUT_MS,
       })
     ).json;
-  } catch {
+  } catch (error) {
+    const notConfigured = isAppError(error) && error.code === 'NOT_CONFIGURED';
+    const code = isAppError(error) ? error.code : error instanceof Error ? error.name : 'unknown';
     return {
       kind: 'HUMAN',
       reply: null,
-      note: 'Gemini was unavailable or timed out',
-      failed: true,
+      note: notConfigured ? 'Gemini is not configured' : 'Gemini call failed (' + code + ')',
+      failure: notConfigured ? 'NOT_CONFIGURED' : 'ERROR',
       intent: 'UNKNOWN',
     };
   }
@@ -168,7 +171,7 @@ export async function runConciergeTurn(
       kind: 'HUMAN',
       reply: null,
       note: 'Gemini returned an unusable answer',
-      failed: true,
+      failure: 'ERROR',
       intent: 'UNKNOWN',
     };
   }
@@ -190,7 +193,6 @@ export async function runConciergeTurn(
         kind: 'HUMAN',
         reply: null,
         note: 'Gemini sent a question to the booking flow, which cannot answer it',
-        failed: false,
         intent,
       };
     }
@@ -200,7 +202,6 @@ export async function runConciergeTurn(
           kind: 'HUMAN',
           reply: null,
           note: `Gemini was unsure it is a booking message (${confidence})`,
-          failed: false,
           intent,
         };
   }
@@ -211,7 +212,6 @@ export async function runConciergeTurn(
       kind: 'HUMAN',
       reply: violation === null ? reply : null,
       note: `Gemini asked for a person (${intent}, ${confidence})${why}`,
-      failed: false,
       intent,
     };
   }
@@ -222,7 +222,6 @@ export async function runConciergeTurn(
       kind: 'HUMAN',
       reply: null,
       note: `Gemini's answer was rejected (${violation})${why}`,
-      failed: false,
       intent,
     };
   }
@@ -231,7 +230,6 @@ export async function runConciergeTurn(
       kind: 'HUMAN',
       reply: IMPLIES_HANDOFF.test(reply) && guard(true) === null ? reply : null,
       note: `Gemini could not fully answer (${intent}, ${confidence})${why}`,
-      failed: false,
       intent,
     };
   }

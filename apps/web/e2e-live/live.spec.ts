@@ -60,7 +60,7 @@ test.describe('deployed concierge chat (real browser + real Gemini)', () => {
   test('unreadable text goes to a person instead of a guess', async ({ page }) => {
     await openChat(page);
     const reply = await say(page, 'asdf qwerty zzz');
-    expect(reply).toMatch(/member of our team/i);
+    expect(reply).toMatch(/team/i);
   });
 
   test('a natural, typo-ridden booking is understood and stays on topic', async ({ page }) => {

@@ -9,6 +9,7 @@ import {
   createVehicle,
   createVehiclePhoto,
 } from '@ai-concierge/db';
+import { AppError } from '@ai-concierge/domain';
 import { seedTestTenants, truncateAllTables, TEST_TENANT_ID } from '@ai-concierge/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from './test/buildTestApp.js';
@@ -31,6 +32,7 @@ class ScriptedGemini implements AIProvider {
     this.interpretationCalls += 1;
     this.lastPrompt = input.prompt;
     if (this.interpretation === 'THROW') throw new Error('timeout');
+    if (this.interpretation === 'NOT_CONFIGURED') throw new AppError('NOT_CONFIGURED', 'no key');
     return {
       json: this.interpretation,
       usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
@@ -245,11 +247,20 @@ describe('front door — integration', () => {
     expect(result.reply.text).toContain('A valid licence and your passport');
   });
 
-  it('keeps the booking flow reply when Gemini is unavailable for a recognised side question', async () => {
-    gemini.interpretation = 'THROW';
+  it('with no Gemini key, a recognised side question keeps the booking flow template', async () => {
+    gemini.interpretation = 'NOT_CONFIGURED';
     const result = await chat(randomUUID(), 'what documents do I need?');
     expect(gemini.interpretationCalls).toBe(1);
     expect(result.escalated).toBe(false);
+  });
+
+  it('when a Gemini call fails, a recognised question is never left to free-text rewriting: a person takes over', async () => {
+    gemini.interpretation = 'THROW';
+    const result = await chat(randomUUID(), 'what time are you open on friday?');
+    expect(result.escalated).toBe(true);
+    expect(result.reply.text).toMatch(/member of our team/i);
+    const escalation = await testApp.ctx.prisma.escalationCase.findFirstOrThrow();
+    expect(escalation.detail).toContain('Gemini call failed');
   });
 
   it('hands the turn back to the booking system when Gemini sees booking details', async () => {
