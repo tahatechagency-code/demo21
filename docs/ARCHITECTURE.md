@@ -684,3 +684,24 @@ propagated on every response. OpenTelemetry tracing bootstraps only when
 - `GET /health` — process identity + `observability` status (`CONFIGURED`/`NOT_CONFIGURED`)
 - `GET /live` — liveness + uptime
 - `GET /ready` — checks Postgres (`SELECT 1`) and Redis (`PING`); 503 if either is down
+
+## Conversation front door (rules → Gemini → human)
+
+Every inbound customer message (web chat, WhatsApp, email) passes through one router
+after Steps 1-8 have run, in `apps/api/src/services/frontDoor/`:
+
+1. **Rules + intent** (`packages/ai/src/router/frontDoor.ts`): normalises the whole message
+   (case, punctuation, abbreviations, typos) and returns `intent`, `confidence`, `entities`,
+   `requiredAction` and the conversation phase. Thresholds live in `FRONT_DOOR_THRESHOLDS`.
+2. **Confident and low-risk**: the booking pipeline's reply stands, or the router answers itself
+   from the database (car prices from the catalog, car photos staff uploaded).
+3. **Unsure, and no booking in progress**: one structured Gemini call
+   (`geminiFallback.ts`) that only interprets; it is trusted only when in-schema, on the
+   allow-list and above the confidence floor.
+4. **Still unsure, Gemini failed/timed out, or the intent is high-risk** (cancellation, refund,
+   payment problem, damage/legal, booking change): `escalateJourney` hands the conversation to
+   a person with the reason recorded. The customer is never told something was cancelled,
+   refunded or changed; there is never a second Gemini call for the same message.
+
+Inside an open journey an unclear message stays with the booking pipeline; once a person
+owns the conversation the router does nothing.

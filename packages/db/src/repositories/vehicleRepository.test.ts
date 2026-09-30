@@ -36,6 +36,9 @@ describe('normalizeVehicleName', () => {
     expect(normalizeVehicleName('lamborghini')).toBe('Lamborghini');
     expect(normalizeVehicleName('LAMBORGHINI')).toBe('Lamborghini');
     expect(normalizeVehicleName('range rover')).toBe('Range Rover');
+    expect(normalizeVehicleName('bmw')).toBe('BMW');
+    expect(normalizeVehicleName('g63 amg')).toBe('G63 AMG');
+    expect(normalizeVehicleName('continental gt')).toBe('Continental GT');
   });
 });
 

@@ -43,8 +43,13 @@ export function normalizeVehicleName(value: string): string {
   return value
     .trim()
     .toLowerCase()
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+    .replace(/\b\w+/g, (word) =>
+      UPPERCASE_WORDS.has(word) ? word.toUpperCase() : word.charAt(0).toUpperCase() + word.slice(1),
+    );
 }
+
+/** Written in capitals, never "Bmw" / "Amg" / "Continental Gt". */
+const UPPERCASE_WORDS = new Set(['bmw', 'amg', 'gt', 'rs', 'gle', 'gls', 'glc', 'gla', 'suv']);
 
 export interface CreateVehicleInput {
   tenantId: TenantId;
