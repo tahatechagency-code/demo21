@@ -22,7 +22,7 @@ import type { FactsPack } from './factsPack.js';
  * one call per message, never a retry loop, and any failure becomes a hand-over to a person.
  */
 
-const GEMINI_TIMEOUT_MS = 12_000;
+const GEMINI_TIMEOUT_MS = 25_000;
 const MAX_CONTEXT_TURNS = 8;
 const MAX_TURN_CHARS = 400;
 const MIN_ANSWER_CONFIDENCE = 0.4;
