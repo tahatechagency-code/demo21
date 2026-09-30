@@ -264,6 +264,32 @@ describe('front door — integration', () => {
     expect(gemini.interpretationCalls).toBe(0);
   });
 
+  it('while a person owns the conversation, plain factual questions are still answered from the database', async () => {
+    const session = randomUUID();
+    await chat(session, 'Cancel my BMW booking');
+    const cases = await testApp.ctx.prisma.escalationCase.count();
+    const price = await chat(session, 'How much is the Ferrari Roma?');
+    expect(price.reply.text).toMatch(/starts from AED 4,000/);
+    expect(price.reply.text).toMatch(/team is still looking after/i);
+    const fleet = await chat(session, 'what cars do you have?');
+    expect(fleet.reply.text).toMatch(/We offer/);
+    expect(await testApp.ctx.prisma.escalationCase.count()).toBe(cases);
+    // Anything that is not a plain factual question is still left to the person.
+    const other = await chat(session, 'ok thanks, I will wait');
+    expect(other.reply.text).toMatch(/team is already looking after/i);
+  });
+
+  it('answers every part of a multi-intent message it can, and hands over the risky part', async () => {
+    const result = await chat(
+      randomUUID(),
+      'How much is the Ferrari Roma, can I cancel my other booking and do you deliver to the airport?',
+    );
+    expect(result.reply.text).toMatch(/On pricing: The Ferrari Roma starts from AED 4,000/);
+    expect(result.reply.text).toMatch(/nothing has been cancelled/i);
+    expect(result.reply.text).toMatch(/On pickup and delivery: we cover .*Dubai Airport/);
+    expect(await testApp.ctx.prisma.escalationCase.count()).toBe(1);
+  });
+
   it('a lone "yes" with no conversation is not escalated', async () => {
     const result = await chat(randomUUID(), 'yes');
     expect(result.escalated).toBe(false);

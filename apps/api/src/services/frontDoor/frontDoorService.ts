@@ -2,6 +2,7 @@ import {
   classifyFrontDoor,
   ConversationPhase,
   FrontDoorIntent,
+  LOCATION_KEYWORDS,
   matchNamedVehicles,
   RequiredAction,
   type ConversationPhaseValue,
@@ -281,7 +282,61 @@ async function routeHighRisk(
     const price = await priceReply(ctx, input, { askWhichCar: false });
     if (price) text = `On pricing: ${price}\n\n${text}`;
   }
+  if (secondaryIntents.includes(FrontDoorIntent.DELIVERY_PICKUP)) {
+    text = `${text}\n\n${deliveryLine()}`;
+  }
   return { text, escalated: true };
+}
+
+const NOT_A_PLACE = new Set(['dubai', 'dxb']);
+
+/** Pickup and delivery are limited to the locations the booking flow can actually resolve. */
+function deliveryLine(): string {
+  const places = LOCATION_KEYWORDS.filter((place) => !NOT_A_PLACE.has(place))
+    .map((place) =>
+      place === 'jbr'
+        ? 'JBR'
+        : place
+            .split(' ')
+            .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' '),
+    )
+    .join(', ');
+  return `On pickup and delivery: we cover ${places}. Tell me where and when and I'll check it for you.`;
+}
+
+/**
+ * A person owns the conversation, but a plain factual question (a car's price, the fleet, photos) is
+ * still answered from the database so the customer is not left waiting. Nothing here touches the case.
+ */
+async function answerWhilePersonOwns(
+  ctx: AppContext,
+  input: FrontDoorInput,
+): Promise<FrontDoorOverride | null> {
+  const { intent } = classifyFrontDoor(input.message, { phase: ConversationPhase.ESCALATED });
+  const note = ' Our team is still looking after your request and will follow up here.';
+  if (intent === FrontDoorIntent.PRICING) {
+    const price = await priceReply(ctx, input, { askWhichCar: false });
+    return price ? { text: `${price}${note}`, escalated: false } : null;
+  }
+  if (intent === FrontDoorIntent.PHOTO_REQUEST) {
+    const photos = await buildPhotoReply(
+      { prisma: ctx.prisma },
+      {
+        tenantId: ctx.config.DEFAULT_TENANT_ID,
+        message: input.message,
+        resolvedVehicleId: input.resolvedVehicleId,
+      },
+    );
+    return photos
+      ? { text: `${photos.text}${note}`, escalated: false, attachments: photos.attachments }
+      : null;
+  }
+  if (FLEET_QUESTION_RE.test(input.message)) {
+    const fleet = await fleetReply(ctx);
+    return fleet ? { text: `${fleet}${note}`, escalated: false } : null;
+  }
+  return null;
 }
 
 /**
@@ -294,7 +349,7 @@ export async function runFrontDoor(
 ): Promise<FrontDoorOverride | null> {
   const phase = withOpenQuestion(phaseOf(input.progress, input.collected), input);
   // A person already owns this conversation.
-  if (phase === ConversationPhase.ESCALATED) return null;
+  if (phase === ConversationPhase.ESCALATED) return answerWhilePersonOwns(ctx, input);
 
   let classification = classifyFrontDoor(input.message, { phase });
   let source = 'rules';
