@@ -1,0 +1,108 @@
+import { describe, expect, it } from 'vitest';
+import {
+  classifyFrontDoor,
+  type FrontDoorContext,
+  ConversationPhase,
+  FrontDoorIntent as I,
+  normalizeMessage,
+  RequiredAction,
+} from './frontDoor.js';
+
+const none: FrontDoorContext = { phase: ConversationPhase.NO_CONTEXT };
+const collecting: FrontDoorContext = { phase: ConversationPhase.COLLECTING };
+const intentOf = (message: string, context: FrontDoorContext = none) =>
+  classifyFrontDoor(message, context).intent;
+
+describe('front door: whole-message intent, not one keyword', () => {
+  it.each([
+    ['Do you have the BMW available?', I.AVAILABILITY],
+    ['How much is the BMW?', I.PRICING],
+    ['Book the BMW.', I.BOOKING],
+    ['Cancel my BMW booking.', I.CANCELLATION],
+    ['show me a picture of the Range Rover', I.PHOTO_REQUEST],
+    ['what documents do I need?', I.DOCUMENTS],
+    ['I want to talk to a real person', I.HUMAN_REQUEST],
+    ['I want a refund for my last rental', I.PAYMENT_REFUND],
+    ['there was an accident with the car', I.COMPLAINT_DAMAGE],
+    ['can you move pickup to 7 pm?', I.MODIFY_BOOKING],
+    ['do you deliver to the airport', I.DELIVERY_PICKUP],
+    ['hello', I.GREETING],
+  ])('%s -> %s', (message, intent) => {
+    expect(intentOf(message)).toBe(intent);
+  });
+});
+
+describe('front door: normalisation', () => {
+  it('handles typos, abbreviations and punctuation', () => {
+    expect(intentOf('helo i wana rnt a mercedez for 3 dayz')).toBe(I.BOOKING);
+    expect(intentOf('cancle my bookng!!!')).toBe(I.CANCELLATION);
+    expect(intentOf('pls send pics of the urus')).toBe(I.PHOTO_REQUEST);
+    expect(intentOf('avilable tomorow??')).toBe(I.AVAILABILITY);
+    expect(normalizeMessage('  HELLOOOO!!  ')).toBe('hello');
+  });
+});
+
+describe('front door: confidence and required action', () => {
+  it('routes risky intents to a person, never to automation', () => {
+    for (const message of [
+      'cancel my booking',
+      'refund please',
+      'the car has a dent',
+      'get me a manager',
+    ]) {
+      expect(classifyFrontDoor(message, none).requiredAction).toBe(RequiredAction.ESCALATE_HUMAN);
+    }
+  });
+
+  it('extracts entities as structured data', () => {
+    const result = classifyFrontDoor('Actually can you move pickup to 7 pm', none);
+    expect(result).toMatchObject({ intent: I.MODIFY_BOOKING, entities: { pickupTime: '19:00' } });
+    expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+    expect(classifyFrontDoor('move the pickup to 7', none).entities.pickupTime).toBe('19:00');
+    expect(classifyFrontDoor('need it for 5 days from tomorrow', none).entities).toMatchObject({
+      durationDays: 5,
+      dateWords: 'tomorrow',
+    });
+  });
+
+  it('is unsure of gibberish and sends it to Gemini, not a greeting', () => {
+    const result = classifyFrontDoor('asdf qwerty zzz', none);
+    expect(result.intent).toBe(I.UNKNOWN);
+    expect(result.confidence).toBeLessThan(0.5);
+    expect(result.requiredAction).toBe(RequiredAction.ASK_GEMINI);
+  });
+
+  it('keeps an active booking going when a message is unclear', () => {
+    expect(classifyFrontDoor('hmm asdf', collecting).requiredAction).toBe(
+      RequiredAction.CONTINUE_PIPELINE,
+    );
+  });
+
+  it('detects several intents in one message and still escalates the risky one', () => {
+    const result = classifyFrontDoor(
+      'How much is the Ferrari and can I cancel my other booking and do you deliver to the airport',
+      none,
+    );
+    expect(result.intent).toBe(I.CANCELLATION);
+    expect(result.secondaryIntents).toEqual(expect.arrayContaining([I.PRICING, I.DELIVERY_PICKUP]));
+    expect(result.requiredAction).toBe(RequiredAction.ESCALATE_HUMAN);
+  });
+});
+
+describe('front door: context-dependent short messages', () => {
+  it.each(['yes', 'no', 'that one', 'tomorrow', 'the white one'])(
+    '%s continues an open question',
+    (message) => {
+      expect(intentOf(message, collecting)).toBe(I.CONTINUATION);
+    },
+  );
+
+  it('lets the pipeline ask what a lone "yes" with no conversation is answering', () => {
+    expect(classifyFrontDoor('yes', none).requiredAction).toBe(RequiredAction.CONTINUE_PIPELINE);
+  });
+
+  it('a topic switch is read on its own words', () => {
+    expect(intentOf('actually what documents do I need', collecting)).toBe(I.DOCUMENTS);
+    expect(intentOf('forget the BMW, how much is the Ferrari', collecting)).toBe(I.PRICING);
+  });
+});

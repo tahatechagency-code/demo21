@@ -5,7 +5,7 @@ import {
   matchNamedVehicles,
   wantsWholeFleet,
   type PhotoCatalogEntry,
-} from '../lib/photoRequest.js';
+} from '@ai-concierge/ai';
 
 /** Photos of one car per reply, and photos in total — keeps a chat message (and a WhatsApp burst) sane. */
 const MAX_PHOTOS_PER_CAR = 3;

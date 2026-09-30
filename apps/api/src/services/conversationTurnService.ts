@@ -25,6 +25,7 @@ import { advanceJourneyAutomatically } from './journeyAutopilotService.js';
 import type { JourneyProgress } from './journeyProgress.js';
 import { generateJourneyReply, type JourneyReply } from './journeyReplyService.js';
 import { syncJourneyAfterMissingInfo } from './journeyService.js';
+import { runFrontDoor, type FrontDoorOverride } from './frontDoor/frontDoorService.js';
 import { buildPhotoReply } from './vehiclePhotoReplyService.js';
 
 export interface InboundTurnInput {
@@ -219,6 +220,40 @@ export async function handleInboundTurn(
   logPipelineDecision(ctx, input.channel, input.requestId, pipeline, progress);
 
   const turns = await loadTurns(ctx, tenantId, conversationId);
+  const resolvedVehicleId = pipeline.vehicle.determination.resolvedVehicle?.id ?? null;
+
+  // The front door: rules -> Gemini (only if unsure) -> a person. `null` means the booking pipeline's own reply stands.
+  let override: FrontDoorOverride | null = null;
+  try {
+    override = await runFrontDoor(ctx, {
+      message: input.body,
+      conversationId,
+      requestId: input.requestId,
+      progress,
+      collected: missingInfo.collected,
+      resolvedVehicleId,
+      turns,
+    });
+  } catch (error) {
+    ctx.logger.error({ err: error }, 'front door failed, using the booking pipeline reply');
+  }
+  if (override) {
+    const overriddenProgress: JourneyProgress = override.escalated
+      ? { stage: 'HUMAN_REVIEW', cause: 'CUSTOMER_REQUESTED', handoffRecorded: true }
+      : progress;
+    return {
+      conversationId,
+      reply: {
+        text: override.text,
+        source: 'DETERMINISTIC_FALLBACK',
+        stage: overriddenProgress.stage,
+      },
+      progress: overriddenProgress,
+      missingInfoStatus: missingInfo.status,
+      attachments: override.attachments ?? [],
+    };
+  }
+
   const reply = await generateJourneyReply(
     { aiProvider: ctx.aiProvider, logger: ctx.logger },
     { progress, missingInfo, turns },
@@ -226,15 +261,11 @@ export async function handleInboundTurn(
 
   let replyText = reply.text;
   let attachments: OutboundAttachment[] = [];
-  // "Send me a photo of the Range Rover": attach the photos staff uploaded for it.
+  // "Send me a photo of the Range Rover" mid-booking: attach the photos staff uploaded for it.
   try {
     const photoReply = await buildPhotoReply(
       { prisma: ctx.prisma },
-      {
-        tenantId,
-        message: input.body,
-        resolvedVehicleId: pipeline.vehicle.determination.resolvedVehicle?.id ?? null,
-      },
+      { tenantId, message: input.body, resolvedVehicleId },
     );
     if (photoReply) {
       replyText = `${photoReply.text}\n\n${replyText}`;

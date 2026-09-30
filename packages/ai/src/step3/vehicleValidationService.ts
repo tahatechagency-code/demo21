@@ -72,7 +72,7 @@ export class VehicleValidationService {
         ambiguities.push({
           field: 'vehicle',
           code,
-          message: `${proposal.candidates.length} vehicles matched; please choose one`,
+          message: describeChoices(lookup.matchedVehicles, proposal.candidates.length),
           raw: proposal.candidates[0]!.matchedText,
         });
         status = VehicleDeterminationStatus.NEEDS_CLARIFICATION;
@@ -147,4 +147,22 @@ export class VehicleValidationService {
 
     return vehicleDeterminationResultSchema.parse(result);
   }
+}
+
+/** "BMW X5 in Black or White" — what the customer is choosing between, not a count. */
+function describeChoices(
+  vehicles: { make: string; model: string; color: string }[],
+  candidateCount: number,
+): string {
+  const byName = new Map<string, string[]>();
+  for (const vehicle of vehicles) {
+    const name = `${vehicle.make} ${vehicle.model}`;
+    byName.set(name, [...(byName.get(name) ?? []), vehicle.color]);
+  }
+  const options = [...byName.entries()]
+    .slice(0, 5)
+    .map(([name, colours]) => `${name} in ${colours.join(' or ')}`);
+  return options.length > 0
+    ? `choose one: ${options.join('; ')}`
+    : `${candidateCount} vehicles matched; please choose one`;
 }

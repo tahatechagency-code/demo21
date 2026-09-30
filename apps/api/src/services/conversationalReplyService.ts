@@ -76,6 +76,8 @@ Ground rules — follow exactly, no exceptions:
 - Never state or imply that a vehicle is available, confirmed, reserved, or booked —
   availability and booking are handled by separate verified steps, not by you.
 - Never mention a specific price, amount, or currency figure — pricing isn't decided yet.
+- Never say or imply that a booking was cancelled, changed, refunded or paid, and never describe
+  cancellation, refund or payment policies — those are handled by the team, not by you.
 - If something is still needed from the customer, ask for it naturally in your own
   words rather than repeating a scripted question verbatim if it was already asked.
 - If the customer directly and sincerely asks whether they're talking to an AI, answer
@@ -126,9 +128,9 @@ function buildTranscriptBlock(recentTurns: RecentTurn[]): string {
 
 /** No pricing/quote engine exists yet — any currency mention is definitionally fabricated. */
 const CURRENCY_PATTERN = /\b(AED|USD|EUR|GBP)\b|[$€£]\s?\d/i;
-/** No step in this system produces a real availability/booking confirmation yet. */
+/** Only the deterministic steps and staff ever confirm, cancel or refund anything. */
 const OVERCLAIM_PATTERN =
-  /\b(is available|is confirmed|has been booked|is reserved|booking is complete|you'?re all set)\b/i;
+  /\b(is available|is confirmed|has been booked|is reserved|booking is complete|you'?re all set|(?:been|get|got|is|will be) (?:cancell?ed|refunded|rescheduled)|cancell?ed (?:it|that|your)|refund(?:ed)? (?:it|that|your))\b/i;
 
 /**
  * Best-effort, code-level grounding check — not a substitute for the prompt

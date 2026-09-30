@@ -10,8 +10,6 @@ import type {
   AIProviderHealth,
   GenerateStructuredInput,
   GenerateStructuredResult,
-  GenerateWithToolsInput,
-  GenerateWithToolsResult,
 } from './provider.js';
 
 export interface ResilientAIProviderOptions {
@@ -38,9 +36,6 @@ export class ResilientAIProvider implements AIProvider {
   private readonly rateLimiter: RateLimiter;
   private readonly timeoutMs: number;
 
-  /** Only defined when `inner` supports it — same shape check callers use for any optional `AIProvider` method. */
-  readonly generateWithTools?: (input: GenerateWithToolsInput) => Promise<GenerateWithToolsResult>;
-
   constructor(
     private readonly inner: AIProvider,
     options: ResilientAIProviderOptions = {},
@@ -51,16 +46,6 @@ export class ResilientAIProvider implements AIProvider {
       options.circuitBreaker ?? DEFAULT_OPTIONS.circuitBreaker,
     );
     this.rateLimiter = new RateLimiter(options.rateLimiter ?? DEFAULT_OPTIONS.rateLimiter);
-
-    if (inner.generateWithTools) {
-      const innerGenerateWithTools = inner.generateWithTools.bind(inner);
-      this.generateWithTools = (input: GenerateWithToolsInput) => {
-        this.rateLimiter.acquireOrThrow();
-        return this.circuitBreaker.execute(() =>
-          withTimeout(() => innerGenerateWithTools(input), input.timeoutMs ?? this.timeoutMs),
-        );
-      };
-    }
   }
 
   async generateStructured(input: GenerateStructuredInput): Promise<GenerateStructuredResult> {
