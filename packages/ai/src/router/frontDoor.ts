@@ -260,7 +260,13 @@ const RULES: Rule[] = [
   rule(
     'DOCUMENTS',
     0.95,
-    /\b(?:documents?|passport|licen[cs]e|emirates id|international driving|idp|visa|id (?:required|needed)|what do i need|requirements?|eligib\w*|minimum age|age limit)\b/,
+    /\b(?:documents?|papers?|paperwork|passport|licen[cs]e|emirates id|international driving|idp|visa|id (?:required|needed)|what do i need|requirements?|eligib\w*|minimum age|age limit)\b/,
+  ),
+  // "I'm 22, can I rent a Ferrari?" is a question about the rules, not a booking: Gemini answers it from the policy.
+  rule(
+    'FAQ',
+    0.96,
+    /\b(?:i am|i'?m|im)\s*\d{2}\b.{0,40}\b(?:rent|drive|book|allowed|eligible|old enough|can i)\b|\b(?:can|could|may) i (?:even )?(?:rent|drive|book|hire)\b|\bam i (?:allowed|eligible|old enough)\b|\bold enough\b|\b(?:minimum|lowest|youngest) age\b|\bage (?:limit|requirement)s?\b/,
   ),
   rule(
     'DELIVERY_PICKUP',

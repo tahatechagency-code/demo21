@@ -1,5 +1,6 @@
 import {
   classifyFrontDoor,
+  detectFaqTopic,
   ConversationPhase,
   FrontDoorIntent,
   LOCATION_KEYWORDS,
@@ -340,7 +341,7 @@ const GEMINI_ANSWERED_INTENTS: readonly FrontDoorIntentValue[] = [
 ];
 
 const GENERIC_HANDOFF_TEXT =
-  "I want to make sure you get the right answer, so I've asked a member of our team to take a look. They'll reply here.";
+  "I'm not certain about that and I'd rather not guess, so I've asked a member of our team to reply to you here.";
 
 /**
  * Layer 3: Gemini handles the conversation when the rules could not (or when a rule matched but a
@@ -423,6 +424,17 @@ export async function runFrontDoor(
   ) {
     const text = await fleetReply(ctx);
     if (text) return { text, escalated: false };
+  }
+
+  // A business question (hours, insurance, payment methods, ...) is Gemini's to answer from the
+  // facts, whichever booking-style rule also matched.
+  if (
+    phase !== ConversationPhase.QUOTED &&
+    detectFaqTopic(input.message) !== null &&
+    (classification.requiredAction === RequiredAction.CONTINUE_PIPELINE ||
+      classification.requiredAction === RequiredAction.ANSWER_PRICE)
+  ) {
+    return runGeminiLayer(ctx, input, classification, phase);
   }
 
   switch (classification.requiredAction) {

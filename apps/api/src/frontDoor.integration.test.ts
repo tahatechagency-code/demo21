@@ -4,7 +4,11 @@ import type {
   GenerateStructuredInput,
   GenerateStructuredResult,
 } from '@ai-concierge/ai';
-import { createVehicle, createVehiclePhoto } from '@ai-concierge/db';
+import {
+  createEligibilityPolicyVersion,
+  createVehicle,
+  createVehiclePhoto,
+} from '@ai-concierge/db';
 import { seedTestTenants, truncateAllTables, TEST_TENANT_ID } from '@ai-concierge/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from './test/buildTestApp.js';
@@ -94,6 +98,26 @@ describe('front door — integration', () => {
       pricingProfile: { currency: 'AED', dailyRate: 4000 },
     });
   });
+
+  async function seedPolicy() {
+    await createEligibilityPolicyVersion(testApp.ctx.prisma, {
+      tenantId: TEST_TENANT_ID,
+      rules: {
+        minAge: 21,
+        minAgeByLuxuryTier: { ULTRA_LUXURY: 25 },
+        requiredLicenseTypes: ['UAE', 'GCC', 'IDP'],
+        passportRequired: true,
+        nationalityRules: { blockedNationalities: [], allowedNationalitiesOnly: [] },
+        vehicleRestrictions: {},
+        restrictedCities: [],
+        driverRequirements: {
+          maxAdditionalDrivers: 2,
+          additionalDriverMinAge: 21,
+          additionalDriversRequireValidLicense: true,
+        },
+      },
+    });
+  }
 
   async function chat(sessionId: string, message: string) {
     const response = await testApp.app.inject({
@@ -284,6 +308,31 @@ describe('front door — integration', () => {
     expect(result.reply.text).not.toContain(reply);
     const escalation = await testApp.ctx.prisma.escalationCase.findFirstOrThrow();
     expect(escalation.detail).toContain(why);
+  });
+
+  it('a business question is answered by Gemini even though a booking rule also matches', async () => {
+    gemini.interpretation = turn({
+      reply:
+        "I'm not sure whether we offer chauffeurs, so I've asked our team to confirm. They'll reply here.",
+    });
+    const result = await chat(randomUUID(), 'do you have cars with a driver for a wedding?');
+    expect(gemini.interpretationCalls).toBe(1);
+    expect(result.escalated).toBe(true);
+    expect(result.reply.text).toContain('asked our team to confirm');
+  });
+
+  it('an eligibility question ("I am 22, can I rent a Ferrari?") reaches Gemini with the age rules', async () => {
+    gemini.interpretation = turn({
+      reply:
+        'Ferraris need a driver of at least 25, so not yet at 22, but the BMW X5 is open to you.',
+    });
+    await seedPolicy();
+    const result = await chat(randomUUID(), 'I am 22, can I rent a Ferrari?');
+    expect(gemini.interpretationCalls).toBe(1);
+    expect(gemini.lastPrompt).toContain('LATEST CUSTOMER MESSAGE:\nI am 22, can I rent a Ferrari?');
+    expect(result.reply.text).toContain('at least 25');
+    expect(gemini.lastPrompt).toContain('Minimum driver age 21.');
+    expect(result.escalated).toBe(false);
   });
 
   it('an answer that promises the team will ask is treated as the hand-over it is', async () => {

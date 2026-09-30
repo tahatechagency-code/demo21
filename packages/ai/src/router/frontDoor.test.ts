@@ -138,3 +138,18 @@ describe('front door: short replies with a filler word', () => {
     );
   });
 });
+
+describe('front door: questions about the rules are not bookings', () => {
+  it.each([
+    'I am 22, can I rent a Ferrari?',
+    'am I old enough to rent an Urus',
+    'what is the minimum age',
+    'can I even rent with a foreign licence',
+  ])('%s -> FAQ (answered by Gemini from the policy)', (message) => {
+    expect(classifyFrontDoor(message, none).intent).toBe(I.FAQ);
+  });
+
+  it('"papers" are documents', () => {
+    expect(classifyFrontDoor('whats the deal with my papers', none).intent).toBe(I.DOCUMENTS);
+  });
+});
