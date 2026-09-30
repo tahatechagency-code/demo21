@@ -20,10 +20,12 @@ class ScriptedGemini implements AIProvider {
   readonly name = 'scripted';
   interpretation: unknown = null;
   interpretationCalls = 0;
+  lastPrompt = '';
 
   async generateStructured(input: GenerateStructuredInput): Promise<GenerateStructuredResult> {
-    if (input.schemaName !== 'front-door-interpretation-v1') throw new Error('unscripted call');
+    if (input.schemaName !== 'concierge-turn-v1') throw new Error('unscripted call');
     this.interpretationCalls += 1;
+    this.lastPrompt = input.prompt;
     if (this.interpretation === 'THROW') throw new Error('timeout');
     return {
       json: this.interpretation,
@@ -179,36 +181,71 @@ describe('front door — integration', () => {
     expect(result.reply.text).toMatch(/can't see a booking/i);
   });
 
-  it('asks Gemini once for an unreadable message and trusts a confident answer', async () => {
-    gemini.interpretation = {
-      understood: true,
+  const turn = (fields: Record<string, unknown>) => ({
+    route: 'ANSWER',
+    intent: 'FAQ',
+    confidence: 0.9,
+    reply: '',
+    human_reason: null,
+    ...fields,
+  });
+
+  it('gives Gemini the facts pack: fleet, rates, driver rules and what is NOT PROVIDED', async () => {
+    gemini.interpretation = turn({ reply: 'Happy to help with that.' });
+    await chat(randomUUID(), 'whats the deal with my papers');
+    expect(gemini.lastPrompt).toContain('BMW X5 (Black/White): from AED 1,200 per day');
+    expect(gemini.lastPrompt).toContain('DRIVER REQUIREMENTS:');
+    expect(gemini.lastPrompt).toContain('HOURS: NOT PROVIDED');
+    expect(gemini.lastPrompt).toContain('LATEST CUSTOMER MESSAGE:\nwhats the deal with my papers');
+  });
+
+  it('asks Gemini once for an unreadable message and sends a grounded answer', async () => {
+    gemini.interpretation = turn({
       intent: 'DOCUMENTS',
-      confidence: 0.91,
-      entities: {},
-      needs_clarification: false,
-    };
+      reply: 'You will need your passport and a valid driving licence. Which car are you eyeing?',
+    });
     const result = await chat(randomUUID(), 'whats the deal with my papers');
+    expect(gemini.interpretationCalls).toBe(1);
+    expect(result.escalated).toBe(false);
+    expect(result.reply.text).toContain('passport and a valid driving licence');
+    expect(await testApp.ctx.prisma.escalationCase.count()).toBe(0);
+  });
+
+  it('answers a recognised side question (documents) through Gemini instead of a template', async () => {
+    gemini.interpretation = turn({
+      intent: 'DOCUMENTS',
+      reply: 'A valid licence and your passport are all you need.',
+    });
+    const result = await chat(randomUUID(), 'what documents do I need?');
+    expect(gemini.interpretationCalls).toBe(1);
+    expect(result.reply.text).toContain('A valid licence and your passport');
+  });
+
+  it('keeps the booking flow reply when Gemini is unavailable for a recognised side question', async () => {
+    gemini.interpretation = 'THROW';
+    const result = await chat(randomUUID(), 'what documents do I need?');
+    expect(gemini.interpretationCalls).toBe(1);
+    expect(result.escalated).toBe(false);
+  });
+
+  it('hands the turn back to the booking system when Gemini sees booking details', async () => {
+    gemini.interpretation = turn({ route: 'CONTINUE_BOOKING', intent: 'BOOKING', confidence: 0.9 });
+    const result = await chat(randomUUID(), 'something that would impress my in-laws');
     expect(gemini.interpretationCalls).toBe(1);
     expect(result.escalated).toBe(false);
   });
 
   it.each([
     [
-      'unsure',
-      {
-        understood: false,
-        intent: 'UNKNOWN',
-        confidence: 0.2,
-        needs_clarification: true,
-        reason: 'unclear',
-      },
+      'unsure and asks for a person',
+      turn({ route: 'HUMAN', intent: 'UNKNOWN', confidence: 0.2, human_reason: 'unclear' }),
     ],
     [
       'low confidence',
-      { understood: true, intent: 'BOOKING', confidence: 0.4, needs_clarification: false },
+      turn({ intent: 'BOOKING', confidence: 0.3, reply: 'Sure, whatever you like.' }),
     ],
-    ['misunderstanding (off-schema)', { hello: 'world' }],
-    ['timeout / failure', 'THROW'],
+    ['off-schema', { hello: 'world' }],
+    ['timing out / failing', 'THROW'],
   ])('escalates to a person when Gemini is %s — one call, no loop', async (_label, answer) => {
     gemini.interpretation = answer;
     const result = await chat(randomUUID(), 'asdf qwerty zzz');
@@ -219,17 +256,79 @@ describe('front door — integration', () => {
     expect(escalation.detail).toMatch(/AI_UNCERTAIN/);
   });
 
-  it('never lets a confident-but-risky Gemini reading act on its own', async () => {
-    gemini.interpretation = {
-      understood: true,
+  it('uses the caring reply Gemini wrote when it asks for a person and the reply is safe', async () => {
+    gemini.interpretation = turn({
+      route: 'HUMAN',
+      intent: 'UNKNOWN',
+      confidence: 0.6,
+      reply: 'That one is best answered by our team, so I have passed it to them.',
+    });
+    const result = await chat(randomUUID(), 'my cousin told me something odd about the terms');
+    expect(result.escalated).toBe(true);
+    expect(result.reply.text).toBe(
+      'That one is best answered by our team, so I have passed it to them.',
+    );
+  });
+
+  it.each([
+    ['invents payment methods', 'We accept both card and cash here!', 'UNGROUNDED_PAYMENT_METHODS'],
+    ['invents opening hours', 'Yes, we are open 24/7, any time.', 'UNGROUNDED_HOURS'],
+    ['denies being an AI', 'Nope, not a robot! Ask me anything.', 'DENIES_BEING_AI'],
+    ['promises to check', 'Let me check on that and get back to you.', 'UNKEPT_PROMISE'],
+    ['invents a price', 'The X5 is only AED 500 per day.', 'UNGROUNDED_NUMBER'],
+    ['claims an action', 'Done, I have cancelled it for you.', 'CLAIMS_AN_ACTION'],
+  ])('never sends a Gemini answer that %s: a person takes over', async (_label, reply, why) => {
+    gemini.interpretation = turn({ reply });
+    const result = await chat(randomUUID(), 'tell me about your service please');
+    expect(result.escalated).toBe(true);
+    expect(result.reply.text).not.toContain(reply);
+    const escalation = await testApp.ctx.prisma.escalationCase.findFirstOrThrow();
+    expect(escalation.detail).toContain(why);
+  });
+
+  it('an answer that promises the team will ask is treated as the hand-over it is', async () => {
+    gemini.interpretation = turn({
+      reply: 'I am not sure about the insurance details, so I will ask our team to confirm.',
+    });
+    const result = await chat(randomUUID(), 'is insurance included?');
+    expect(result.escalated).toBe(true);
+  });
+
+  it('a configured business fact is answered; anything else is never invented', async () => {
+    const withFacts = await buildTestApp(
+      { RATE_LIMIT_MAX: 5000, BUSINESS_FACTS_JSON: '{"HOURS":"Daily 9-21"}' },
+      { aiProvider: gemini, notificationProvider: new FakeNotificationProvider() },
+    );
+    try {
+      gemini.interpretation = turn({ reply: 'We are open daily 9-21, so drop in any time.' });
+      const response = await withFacts.app.inject({
+        method: 'POST',
+        url: '/v1/chat/messages',
+        payload: {
+          sessionId: randomUUID(),
+          clientMessageId: randomUUID(),
+          message: 'when are you open?',
+        },
+      });
+      expect(response.json().reply.text).toContain('open daily 9-21');
+      expect(response.json().escalated).toBe(false);
+      expect(gemini.lastPrompt).toContain('HOURS: Daily 9-21');
+    } finally {
+      await withFacts.close();
+    }
+  });
+
+  it('a risky reading by Gemini uses the reviewed hand-over wording, never its own', async () => {
+    gemini.interpretation = turn({
+      route: 'HUMAN',
       intent: 'PAYMENT_REFUND',
       confidence: 0.95,
-      entities: {},
-      needs_clarification: false,
-    };
+      reply: 'Sure, I will sort your money out.',
+    });
     const result = await chat(randomUUID(), 'my money situation is a mess again');
     expect(result.escalated).toBe(true);
-    expect(result.reply.text).not.toMatch(/refunded/i);
+    expect(result.reply.text).toContain('Payments and refunds are handled by our team');
+    expect(result.reply.text).not.toContain('sort your money out');
   });
 
   it('does not re-escalate or re-ask once a person owns the conversation', async () => {

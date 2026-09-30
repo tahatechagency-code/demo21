@@ -1,6 +1,12 @@
 import { createHmac } from 'node:crypto';
 import { createVehicle } from '@ai-concierge/db';
-import { seedTestTenants, seedTestUser, truncateAllTables, TEST_TENANT_ID, TEST_USER_PASSWORD } from '@ai-concierge/testing';
+import {
+  seedTestTenants,
+  seedTestUser,
+  truncateAllTables,
+  TEST_TENANT_ID,
+  TEST_USER_PASSWORD,
+} from '@ai-concierge/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from './test/buildTestApp.js';
 import { FakeEmailProvider } from './test/fakeEmailProvider.js';
@@ -131,7 +137,7 @@ describe('email resend — integration', () => {
     expect(updated?.deliveryError).toBeNull();
   });
 
-  it('never resends a different conversation\'s message even if the ids are passed mismatched (regression)', async () => {
+  it("never resends a different conversation's message even if the ids are passed mismatched (regression)", async () => {
     // Alice's conversation.
     fakeProvider.failNextCount = 1;
     await sendInbound({ sender: 'alice@example.com', token: 'alice-token' });
@@ -179,8 +185,16 @@ describe('email resend — integration', () => {
 
     const resendUrl = `/v1/enquiries/${conversation.id}/outbound-messages/${failedMessage.id}/resend`;
     const [first, second] = await Promise.all([
-      testApp.app.inject({ method: 'POST', url: resendUrl, headers: { authorization: `Bearer ${token}` } }),
-      testApp.app.inject({ method: 'POST', url: resendUrl, headers: { authorization: `Bearer ${token}` } }),
+      testApp.app.inject({
+        method: 'POST',
+        url: resendUrl,
+        headers: { authorization: `Bearer ${token}` },
+      }),
+      testApp.app.inject({
+        method: 'POST',
+        url: resendUrl,
+        headers: { authorization: `Bearer ${token}` },
+      }),
     ]);
 
     const statuses = [first.statusCode, second.statusCode].sort();

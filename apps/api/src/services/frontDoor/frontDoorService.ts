@@ -24,7 +24,8 @@ import type { RecentTurn } from '../conversationalReplyService.js';
 import type { JourneyProgress } from '../journeyProgress.js';
 import { escalateJourney } from '../journeyService.js';
 import { buildPhotoReply } from '../vehiclePhotoReplyService.js';
-import { interpretWithGemini } from './geminiFallback.js';
+import { buildFactsPack } from './factsPack.js';
+import { runConciergeTurn } from './geminiTurn.js';
 
 /**
  * The concierge front door — the one place that decides how a customer
@@ -245,15 +246,6 @@ async function escalate(
   return result.escalated;
 }
 
-function bookingState(collected: CollectedBookingInfo): Record<string, string | null> {
-  return {
-    vehicle: collected.vehicle ? `${collected.vehicle.make} ${collected.vehicle.model}` : null,
-    pickupDate: collected.pickupDate,
-    returnDate: collected.returnDate,
-    pickupLocation: collected.pickupLocation?.normalized ?? null,
-  };
-}
-
 async function routeHighRisk(
   ctx: AppContext,
   input: FrontDoorInput,
@@ -339,6 +331,62 @@ async function answerWhilePersonOwns(
   return null;
 }
 
+/** Messages the rules recognise but whose fixed reply would be weak; Gemini answers them from the facts. */
+const GEMINI_ANSWERED_INTENTS: readonly FrontDoorIntentValue[] = [
+  FrontDoorIntent.FAQ,
+  FrontDoorIntent.DOCUMENTS,
+  FrontDoorIntent.DELIVERY_PICKUP,
+  FrontDoorIntent.RETURN,
+];
+
+const GENERIC_HANDOFF_TEXT =
+  "I want to make sure you get the right answer, so I've asked a member of our team to take a look. They'll reply here.";
+
+/**
+ * Layer 3: Gemini handles the conversation when the rules could not (or when a rule matched but a
+ * grounded, human answer is better than a template). It answers from the facts pack, hands the
+ * turn back to the booking system, or asks for a person — see `runConciergeTurn`.
+ */
+async function runGeminiLayer(
+  ctx: AppContext,
+  input: FrontDoorInput,
+  classification: FrontDoorClassification,
+  phase: ConversationPhaseValue,
+): Promise<FrontDoorOverride | null> {
+  const facts = await buildFactsPack(ctx, input.collected);
+  const turn = await runConciergeTurn(ctx.aiProvider, {
+    message: input.message,
+    recentTurns: input.turns,
+    facts,
+  });
+  ctx.logger.info(
+    {
+      requestId: input.requestId,
+      conversationId: input.conversationId,
+      frontDoor: { source: 'gemini', phase, kind: turn.kind, intent: turn.intent },
+    },
+    'front door gemini turn',
+  );
+
+  if (turn.kind === 'ANSWER') return { text: turn.reply, escalated: false };
+  if (turn.kind === 'CONTINUE_BOOKING') return null;
+
+  // A recognised message whose Gemini answer could not be produced (no key, outage) keeps the booking flow's own reply.
+  if (turn.failed && classification.requiredAction !== RequiredAction.ASK_GEMINI) return null;
+
+  // Gemini named a risky intent: the fixed, reviewed hand-over wording applies, not its own words.
+  if (handOffFor(turn.intent, {}) !== null) {
+    return routeHighRisk(ctx, input, { ...classification, intent: turn.intent }, 'gemini');
+  }
+  const handedOver = await escalate(
+    ctx,
+    input,
+    { reason: EscalationReason.AI_UNABLE_TO_PROCEED, tier: EscalationTier.T2 },
+    `Front door: AI_UNCERTAIN. Rules read ${classification.intent} (${classification.confidence}). ${turn.note}`,
+  );
+  return handedOver ? { text: turn.reply ?? GENERIC_HANDOFF_TEXT, escalated: true } : null;
+}
+
 /**
  * Returns the reply to send instead of the pipeline's, or `null` to let the
  * booking pipeline's own reply stand.
@@ -351,50 +399,13 @@ export async function runFrontDoor(
   // A person already owns this conversation.
   if (phase === ConversationPhase.ESCALATED) return answerWhilePersonOwns(ctx, input);
 
-  let classification = classifyFrontDoor(input.message, { phase });
-  let source = 'rules';
-
-  if (classification.requiredAction === RequiredAction.ASK_GEMINI) {
-    const { interpretation, note } = await interpretWithGemini(ctx.aiProvider, {
-      message: input.message,
-      recentTurns: input.turns,
-      bookingState: bookingState(input.collected),
-    });
-    if (!interpretation) {
-      // Rules and Gemini both unsure: do not guess, hand over.
-      const handedOver = await escalate(
-        ctx,
-        input,
-        { reason: EscalationReason.AI_UNABLE_TO_PROCEED, tier: EscalationTier.T2 },
-        `Front door: AI_UNCERTAIN. Rules read ${classification.intent} (${classification.confidence}). ${note}`,
-      );
-      if (!handedOver) return null;
-      return {
-        text: "I want to make sure you get the right answer, so I've asked a member of our team to take a look. They'll reply here.",
-        escalated: true,
-      };
-    }
-    source = 'gemini';
-    const highRisk = handOffFor(interpretation.intent, interpretation.entities) !== null;
-    classification = {
-      ...classification,
-      intent: interpretation.intent,
-      confidence: interpretation.confidence,
-      entities: { ...classification.entities, ...interpretation.entities },
-      requiredAction: highRisk
-        ? RequiredAction.ESCALATE_HUMAN
-        : interpretation.intent === FrontDoorIntent.PRICING
-          ? RequiredAction.ANSWER_PRICE
-          : RequiredAction.CONTINUE_PIPELINE,
-    };
-  }
-
+  const classification = classifyFrontDoor(input.message, { phase });
   ctx.logger.info(
     {
       requestId: input.requestId,
       conversationId: input.conversationId,
       frontDoor: {
-        source,
+        source: 'rules',
         phase,
         intent: classification.intent,
         confidence: classification.confidence,
@@ -418,7 +429,7 @@ export async function runFrontDoor(
     case RequiredAction.ESCALATE_HUMAN:
       // An explicit "talk to a person" is escalated by the journey autopilot already.
       if (classification.intent === FrontDoorIntent.HUMAN_REQUEST) return null;
-      return routeHighRisk(ctx, input, classification, source);
+      return routeHighRisk(ctx, input, classification, 'rules');
     case RequiredAction.SEND_PHOTOS: {
       // Mid-booking, the photos are added in front of the normal reply instead.
       if (phase !== ConversationPhase.NO_CONTEXT) return null;
@@ -440,7 +451,16 @@ export async function runFrontDoor(
       const text = await priceReply(ctx, input, { askWhichCar: true });
       return text ? { text, escalated: false } : null;
     }
+    case RequiredAction.ASK_GEMINI:
+      return runGeminiLayer(ctx, input, classification, phase);
     default:
+      // A recognised side question outside a live quote is answered by Gemini from the facts.
+      if (
+        phase !== ConversationPhase.QUOTED &&
+        GEMINI_ANSWERED_INTENTS.includes(classification.intent)
+      ) {
+        return runGeminiLayer(ctx, input, classification, phase);
+      }
       return null;
   }
 }

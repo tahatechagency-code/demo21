@@ -48,10 +48,12 @@ class ScriptedGemini implements AIProvider {
   readonly name = 'scripted';
   answer: unknown = 'THROW';
   calls = 0;
+  lastPrompt = '';
 
   async generateStructured(input: GenerateStructuredInput): Promise<GenerateStructuredResult> {
-    if (input.schemaName !== 'front-door-interpretation-v1') throw new Error('unscripted call');
+    if (input.schemaName !== 'concierge-turn-v1') throw new Error('unscripted call');
     this.calls += 1;
+    this.lastPrompt = input.prompt;
     if (this.answer === 'THROW') throw new Error('gemini down');
     return {
       json: this.answer,
@@ -217,10 +219,11 @@ describe('conversation QA — 25 scenarios', () => {
 
   it('05 ambiguous: unreadable text goes to Gemini once, then to a person if it is unsure', async () => {
     gemini.answer = {
-      understood: false,
+      route: 'HUMAN',
       intent: 'UNKNOWN',
       confidence: 0.3,
-      needs_clarification: true,
+      reply: '',
+      human_reason: 'unclear',
     };
     const result = await chat(randomUUID(), 'hmm that thing from before');
     expect(gemini.calls).toBe(1);
@@ -300,7 +303,21 @@ describe('conversation QA — 25 scenarios', () => {
   it('13 topic switch: a documents question is answered and the booking survives it', async () => {
     const session = randomUUID();
     await chat(session, BOOKING);
+    gemini.answer = {
+      route: 'ANSWER',
+      intent: 'DOCUMENTS',
+      confidence: 0.9,
+      reply:
+        'You will need your passport and a valid driving licence. Shall we carry on with the Urus?',
+    };
     const docs = await chat(session, 'what documents do I need?');
+    expect(docs.reply.text).toContain('passport and a valid driving licence');
+    // Gemini was given the real policy, not left to guess it.
+    expect(gemini.lastPrompt).toContain('Minimum driver age 21.');
+    expect(gemini.lastPrompt).toContain(
+      'ULTRA_LUXURY cars need the driver to be at least 25: Lamborghini Urus',
+    );
+    expect(gemini.lastPrompt).toContain('BOOKING SO FAR: car Lamborghini Urus');
     expect(docs.escalated).toBe(false);
     expect(docs.booking?.vehicle).toMatch(/Urus/);
     const back = await chat(session, FULL_DETAILS);
@@ -313,7 +330,7 @@ describe('conversation QA — 25 scenarios', () => {
     ['15 Gemini timeout', 'THROW'],
     [
       '16 Gemini misunderstanding',
-      { understood: true, intent: 'BOOKING', confidence: 0.3, needs_clarification: false },
+      { route: 'CONTINUE_BOOKING', intent: 'BOOKING', confidence: 0.3, reply: '' },
     ],
   ])('%s: never guesses, hands over once, no loop', async (_name, answer) => {
     gemini.answer = answer;

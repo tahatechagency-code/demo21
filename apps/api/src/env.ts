@@ -102,6 +102,12 @@ export const apiEnvSchema = baseEnvSchema.extend({
   // budget. If the API rejects the field the provider retries without it.
   GEMINI_THINKING_LEVEL: z.enum(['minimal', 'low', 'medium', 'high']).default('low'),
 
+  // Facts about the business the concierge may state (opening hours, insurance, payment methods,
+  // cross-border rules, discounts, chauffeur service, address, mileage, fuel/tolls). A JSON object of
+  // short strings, e.g. {"HOURS":"Daily 9am-9pm","PAYMENT_METHODS":"Card only"}. Anything not set is
+  // never stated: the concierge says it is unsure and asks the team instead of guessing.
+  BUSINESS_FACTS_JSON: z.string().trim().min(2).optional(),
+
   // Twilio — staff SMS notification only (EscalationCase alerts), never a
   // customer-facing channel. All optional; unset means NOT_CONFIGURED, same
   // convention as every other provider above (see lib/notificationProvider.ts).

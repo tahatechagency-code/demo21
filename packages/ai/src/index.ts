@@ -11,6 +11,8 @@ export * from './sandbox/toolPermissionMatrix.js';
 // Requirement Extraction + Function Calling + Conversation State
 export * from './router/frontDoor.js';
 export * from './router/photoRequest.js';
+export * from './router/faqTopics.js';
+export * from './router/replyGuard.js';
 // Step 2 — Extract Dates & Location
 export * from './step2/calendar.js';
 export * from './step2/calendarDay.js';
