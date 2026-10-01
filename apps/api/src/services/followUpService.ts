@@ -32,18 +32,27 @@ export const FollowUpStage = {
 export type FollowUpStageValue = (typeof FollowUpStage)[keyof typeof FollowUpStage];
 
 const MINUTE_MS = 60_000;
-const STEPS: readonly { stage: FollowUpStageValue; afterMs: number }[] = [
-  { stage: FollowUpStage.AFTER_3_MINUTES, afterMs: 3 * MINUTE_MS },
-  { stage: FollowUpStage.AFTER_30_MINUTES, afterMs: 30 * MINUTE_MS },
-  { stage: FollowUpStage.AFTER_1_WEEK, afterMs: 7 * 24 * 60 * MINUTE_MS },
+/**
+ * A check-in is only sent while it is still timely: at most `graceMs` after it fell due. That is long
+ * enough to carry a night-time nudge over to the morning (22:00 -> 08:00), and short enough that a chat
+ * that went quiet days ago — or one found when the system first starts — is never nudged late.
+ */
+const STEPS: readonly { stage: FollowUpStageValue; afterMs: number; graceMs: number }[] = [
+  { stage: FollowUpStage.AFTER_3_MINUTES, afterMs: 3 * MINUTE_MS, graceMs: 12 * 60 * MINUTE_MS },
+  { stage: FollowUpStage.AFTER_30_MINUTES, afterMs: 30 * MINUTE_MS, graceMs: 12 * 60 * MINUTE_MS },
+  {
+    stage: FollowUpStage.AFTER_1_WEEK,
+    afterMs: 7 * 24 * 60 * MINUTE_MS,
+    graceMs: 36 * 60 * MINUTE_MS,
+  },
 ];
 
 const WHATSAPP_FREE_TEXT_WINDOW_MS = 24 * 60 * MINUTE_MS;
 /** The hours (Dubai time) a customer may be nudged: from 08:00 up to, not including, 22:00. */
 const NUDGE_FROM_HOUR = 8;
 const NUDGE_UNTIL_HOUR = 22;
-/** Conversations whose last AI message is older than this are never nudged again. */
-const LOOKBACK_MS = STEPS[STEPS.length - 1]!.afterMs + 24 * 60 * MINUTE_MS;
+/** Conversations whose last AI message is older than the last check-in's window are never read. */
+const LOOKBACK_MS = STEPS[STEPS.length - 1]!.afterMs + STEPS[STEPS.length - 1]!.graceMs;
 const MAX_CONVERSATIONS_PER_SWEEP = 300;
 
 export interface FollowUpPlanInput {
@@ -62,7 +71,12 @@ export function planFollowUp(input: FollowUpPlanInput): FollowUpStageValue | nul
   const hour = dubaiHour(input.now);
   if (hour < NUDGE_FROM_HOUR || hour >= NUDGE_UNTIL_HOUR) return null;
   const elapsed = input.now.getTime() - input.anchorAt.getTime();
-  const due = STEPS.filter((step) => !input.sentStages.has(step.stage) && elapsed >= step.afterMs);
+  const due = STEPS.filter(
+    (step) =>
+      !input.sentStages.has(step.stage) &&
+      elapsed >= step.afterMs &&
+      elapsed < step.afterMs + step.graceMs,
+  );
   const latest = due[due.length - 1];
   if (!latest) return null;
   if (

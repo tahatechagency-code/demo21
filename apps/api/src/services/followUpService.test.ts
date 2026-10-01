@@ -69,6 +69,19 @@ describe('planFollowUp', () => {
     );
   });
 
+  it('never nudges a chat late: a check-in that fell due long ago is dropped', () => {
+    // Quiet for two days: neither the 3-minute nor the 30-minute check-in is timely any more.
+    expect(planFollowUp({ ...base, now: minutesAfter(anchorAt, 2 * 24 * 60) })).toBeNull();
+    // The week check-in is dropped once its window has also passed.
+    expect(
+      planFollowUp({
+        ...base,
+        now: minutesAfter(anchorAt, 9 * 24 * 60),
+        sentStages: new Set([FollowUpStage.AFTER_3_MINUTES, FollowUpStage.AFTER_30_MINUTES]),
+      }),
+    ).toBeNull();
+  });
+
   it('holds a night-time check-in until 08:00 Dubai time', () => {
     const lateAnchor = dubai(21, 50);
     const late = { ...base, anchorAt: lateAnchor, lastCustomerAt: minutesAfter(lateAnchor, -1) };
