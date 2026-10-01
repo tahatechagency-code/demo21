@@ -71,8 +71,14 @@ export function planFollowUp(input: FollowUpPlanInput): FollowUpStageValue | nul
   const hour = dubaiHour(input.now);
   if (hour < NUDGE_FROM_HOUR || hour >= NUDGE_UNTIL_HOUR) return null;
   const elapsed = input.now.getTime() - input.anchorAt.getTime();
+  // Once a later check-in has gone out, the earlier ones are history: they are never sent afterwards.
+  const lastSent = STEPS.reduce(
+    (found, step, index) => (input.sentStages.has(step.stage) ? index : found),
+    -1,
+  );
   const due = STEPS.filter(
-    (step) =>
+    (step, index) =>
+      index > lastSent &&
       !input.sentStages.has(step.stage) &&
       elapsed >= step.afterMs &&
       elapsed < step.afterMs + step.graceMs,

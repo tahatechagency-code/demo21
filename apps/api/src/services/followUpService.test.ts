@@ -69,6 +69,16 @@ describe('planFollowUp', () => {
     );
   });
 
+  it('once the 30-minute check-in went out, the 3-minute one is never sent after it', () => {
+    expect(
+      planFollowUp({
+        ...base,
+        now: minutesAfter(anchorAt, 31),
+        sentStages: new Set([FollowUpStage.AFTER_30_MINUTES]),
+      }),
+    ).toBeNull();
+  });
+
   it('never nudges a chat late: a check-in that fell due long ago is dropped', () => {
     // Quiet for two days: neither the 3-minute nor the 30-minute check-in is timely any more.
     expect(planFollowUp({ ...base, now: minutesAfter(anchorAt, 2 * 24 * 60) })).toBeNull();
