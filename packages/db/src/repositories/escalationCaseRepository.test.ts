@@ -17,11 +17,11 @@ import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { acquireJourneyLock, createJourney } from './journeyRepository.js';
 import {
-  assignEscalationCase,
+  assignEscalationCaseToStaff,
   createEscalationCase,
   findBreachedEscalationCases,
   findEscalationCaseById,
-  findOpenEscalationCaseForJourney,
+  findActiveEscalationCaseForJourney,
   listEscalationCases,
   markEscalationCaseSlaBreached,
   resolveEscalationCase,
@@ -76,22 +76,24 @@ describe('escalationCaseRepository', () => {
       ),
     );
 
-    expect(created.status).toBe(EscalationStatus.OPEN);
+    // No unclaimed "open" lane: a case is with the whole team from the start.
+    expect(created.status).toBe(EscalationStatus.IN_PROGRESS);
+    expect(created.assignedToUserId).toBeNull();
     expect(created.slaBreached).toBe(false);
     expect(new Date(created.slaDueAt).getTime()).toBe(now.getTime() + 240 * 60_000);
 
     const found = await findEscalationCaseById(prisma, TEST_TENANT_ID, created.id);
     expect(found?.id).toBe(created.id);
 
-    const openForJourney = await findOpenEscalationCaseForJourney(
+    const activeForJourney = await findActiveEscalationCaseForJourney(
       prisma,
       TEST_TENANT_ID,
       journey.id,
     );
-    expect(openForJourney?.id).toBe(created.id);
+    expect(activeForJourney?.id).toBe(created.id);
   });
 
-  it('assigns an OPEN case to a worker and moves it to IN_PROGRESS', async () => {
+  it('the first staff reply claims the case; a second staff member never takes it over', async () => {
     const journey = await seedJourney(prisma, TEST_TENANT_ID);
     const worker = await seedTestUser(prisma, { tenantId: TEST_TENANT_ID, role: 'OPS_AGENT' });
     const created = await prisma.$transaction((tx) =>
@@ -108,23 +110,23 @@ describe('escalationCaseRepository', () => {
       ),
     );
 
-    const assigned = await assignEscalationCase(prisma, TEST_TENANT_ID, created.id, worker.id);
-    expect(assigned?.status).toBe(EscalationStatus.IN_PROGRESS);
-    expect(assigned?.assignedToUserId).toBe(worker.id);
+    expect(await assignEscalationCaseToStaff(prisma, TEST_TENANT_ID, journey.id, worker.id)).toBe(
+      true,
+    );
+    const claimed = await findEscalationCaseById(prisma, TEST_TENANT_ID, created.id);
+    expect(claimed?.status).toBe(EscalationStatus.IN_PROGRESS);
+    expect(claimed?.assignedToUserId).toBe(worker.id);
 
-    // Assigning an already-assigned case is a no-op failure, not a silent reassignment.
     const otherWorker = await seedTestUser(prisma, {
       tenantId: TEST_TENANT_ID,
       role: 'MANAGER',
       email: 'manager@example.com',
     });
-    const reassigned = await assignEscalationCase(
-      prisma,
-      TEST_TENANT_ID,
-      created.id,
-      otherWorker.id,
-    );
-    expect(reassigned).toBeNull();
+    expect(
+      await assignEscalationCaseToStaff(prisma, TEST_TENANT_ID, journey.id, otherWorker.id),
+    ).toBe(false);
+    const stillClaimed = await findEscalationCaseById(prisma, TEST_TENANT_ID, created.id);
+    expect(stillClaimed?.assignedToUserId).toBe(worker.id);
   });
 
   it('resolves a case exactly once — a second resolve attempt is a no-op', async () => {
@@ -169,7 +171,7 @@ describe('escalationCaseRepository', () => {
     expect(stillApproved?.resolution).toBe(EscalationResolution.APPROVED);
   });
 
-  it('lists cases filtered by status, most-open-first', async () => {
+  it('lists in-progress cases with their chat and whether a person has answered in it', async () => {
     const journey = await seedJourney(prisma, TEST_TENANT_ID);
     const worker = await seedTestUser(prisma, { tenantId: TEST_TENANT_ID, role: 'OPS_AGENT' });
     const openCase = await prisma.$transaction((tx) =>
@@ -207,16 +209,51 @@ describe('escalationCaseRepository', () => {
       now: new Date(),
     });
 
-    const openOnly = await listEscalationCases(prisma, {
+    const inProgress = await listEscalationCases(prisma, {
       tenantId: TEST_TENANT_ID,
-      status: 'OPEN',
+      status: 'IN_PROGRESS',
       limit: 10,
       offset: 0,
     });
-    expect(openOnly.map((c) => c.id)).toEqual([openCase.id]);
+    expect(inProgress.map((c) => c.id)).toEqual([openCase.id]);
+    expect(inProgress[0]).toMatchObject({
+      conversationId: journey.conversationId,
+      channel: 'WHATSAPP',
+      customerRef: '+15550000002',
+      humanReplied: false,
+      lastHumanReplyAt: null,
+    });
+
+    // A staff reply in the chat after the case was raised turns the tick on.
+    await prisma.outboundMessage.create({
+      data: {
+        tenantId: TEST_TENANT_ID,
+        conversationId: journey.conversationId,
+        content: 'Hello, this is the team',
+        source: 'HUMAN',
+        stage: 'STAFF_REPLY',
+        authorUserId: worker.id,
+      },
+    });
+    const afterReply = await listEscalationCases(prisma, {
+      tenantId: TEST_TENANT_ID,
+      status: 'IN_PROGRESS',
+      limit: 10,
+      offset: 0,
+    });
+    expect(afterReply[0]?.humanReplied).toBe(true);
+    expect(afterReply[0]?.lastHumanReplyAt).not.toBeNull();
+
+    const finished = await listEscalationCases(prisma, {
+      tenantId: TEST_TENANT_ID,
+      status: 'RESOLVED',
+      limit: 10,
+      offset: 0,
+    });
+    expect(finished.map((c) => c.id)).toEqual([resolvedCase.id]);
   });
 
-  it('the SLA sweep finds only breached, still-open cases and marks them exactly once', async () => {
+  it('the SLA sweep finds only breached, still-in-progress cases and marks them exactly once', async () => {
     const journey = await seedJourney(prisma, TEST_TENANT_ID);
     const past = new Date(Date.now() - 10 * 60_000);
     const overdue = await prisma.$transaction((tx) =>

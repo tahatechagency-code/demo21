@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { AppError } from './errors.js';
-import { Money, moneySchema, sumMoney } from './money.js';
+import {
+  formatUsdAmount,
+  formatUsdMinor,
+  Money,
+  moneySchema,
+  sumMoney,
+  toUsdAmount,
+} from './money.js';
 
 describe('moneySchema', () => {
   it('accepts a well-formed non-negative amount', () => {
@@ -153,5 +160,24 @@ describe('Money', () => {
         sumMoney('AED', [Money.fromMinorUnits(100, 'AED'), Money.fromMinorUnits(100, 'USD')]),
       ).toThrow(AppError);
     });
+  });
+});
+
+describe('US dollar display', () => {
+  it('converts dirham amounts at the fixed peg and leaves dollars alone', () => {
+    expect(toUsdAmount(3675, 'AED')).toBe(1000.68);
+    expect(toUsdAmount(1470, 'USD')).toBe(1470);
+    expect(toUsdAmount(10, 'EUR')).toBeNull();
+  });
+
+  it('formats whole dollars without cents and others with two decimals', () => {
+    expect(formatUsdAmount(1470)).toBe('$1,470');
+    expect(formatUsdAmount(3500, 'AED')).toBe('$953.03');
+    expect(formatUsdMinor(147_000, 'USD')).toBe('$1,470');
+    expect(formatUsdMinor(1_470_000, 'AED')).toBe('$4,002.72');
+  });
+
+  it('never presents a currency it cannot convert as dollars', () => {
+    expect(formatUsdAmount(500, 'EUR')).toBe('EUR 500');
   });
 });

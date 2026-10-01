@@ -1,6 +1,7 @@
 'use client';
 
 import type { FleetVehicle } from '@ai-concierge/contracts';
+import { pricingProfileInUsd } from '@ai-concierge/domain';
 import { useActionState } from 'react';
 import { updateVehicleAction } from '../../app/dashboard/fleet/actions';
 import { INITIAL_FLEET_FORM_STATE } from '../../app/dashboard/fleet/fleetState';
@@ -17,14 +18,14 @@ export function VehicleEditForm({ vehicle }: { vehicle: FleetVehicle }) {
   return (
     <form action={formAction} className="mt-4 grid grid-cols-2 gap-2 text-xs text-ink-600">
       <label className="col-span-1">
-        <span className="uppercase tracking-wide">Rate / day (AED)</span>
+        <span className="uppercase tracking-wide">Rate / day (USD)</span>
         <input
           name="dailyRate"
           type="number"
           min={1}
           step="any"
           required
-          defaultValue={vehicle.pricingProfile.dailyRate}
+          defaultValue={pricingProfileInUsd(vehicle.pricingProfile).dailyRate}
           className={FIELD}
         />
       </label>

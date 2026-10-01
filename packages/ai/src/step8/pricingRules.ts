@@ -1,4 +1,10 @@
-import { Money, InsuranceTier, type InsuranceTierValue } from '@ai-concierge/domain';
+import {
+  DISPLAY_CURRENCY,
+  Money,
+  InsuranceTier,
+  toUsdAmount,
+  type InsuranceTierValue,
+} from '@ai-concierge/domain';
 
 /**
  * Step 8 — Quote/Pricing. The one place every rate, fee, and discount
@@ -71,6 +77,40 @@ export const DEFAULT_PRICING_RULES: PricingRulesConfig = {
   defaultDepositAmount: Money.fromMajorUnits(2000, 'AED'),
   validityHours: 24,
   humanReviewDiscountPercentThreshold: 20,
+};
+
+/** A fee or rate in dirhams, as the same business price in whole US dollars (never fractional dollars on a fee list). */
+function wholeUsd(money: Money): Money {
+  return Money.fromMajorUnits(
+    Math.round(toUsdAmount(money.minorUnits / 100, money.currency) ?? 0),
+    DISPLAY_CURRENCY,
+  );
+}
+
+/**
+ * The rules the running system quotes with: every fee, insurance rate, extra and the default deposit
+ * of `DEFAULT_PRICING_RULES`, restated in US dollars at the dirham's fixed peg and rounded to whole
+ * dollars. Derived, never retyped, so the two price lists cannot drift apart. `DEFAULT_PRICING_RULES`
+ * stays the dirham baseline the engine's own tests are written against.
+ */
+export const USD_PRICING_RULES: PricingRulesConfig = {
+  ...DEFAULT_PRICING_RULES,
+  version: 'pricing-rules-v1-usd',
+  currency: DISPLAY_CURRENCY,
+  serviceFee: wholeUsd(DEFAULT_PRICING_RULES.serviceFee),
+  deliveryFee: wholeUsd(DEFAULT_PRICING_RULES.deliveryFee),
+  insuranceDailyRates: {
+    [InsuranceTier.NONE]: Money.zero(DISPLAY_CURRENCY),
+    [InsuranceTier.BASIC]: wholeUsd(DEFAULT_PRICING_RULES.insuranceDailyRates[InsuranceTier.BASIC]),
+    [InsuranceTier.PREMIUM]: wholeUsd(
+      DEFAULT_PRICING_RULES.insuranceDailyRates[InsuranceTier.PREMIUM],
+    ),
+  },
+  extras: DEFAULT_PRICING_RULES.extras.map((extra) => ({
+    ...extra,
+    dailyRate: wholeUsd(extra.dailyRate),
+  })),
+  defaultDepositAmount: wholeUsd(DEFAULT_PRICING_RULES.defaultDepositAmount),
 };
 
 export class PricingRules {

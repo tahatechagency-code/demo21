@@ -1,9 +1,11 @@
 import {
   AppError,
+  DISPLAY_CURRENCY,
   InsuranceTier,
   Money,
   QuoteLineItemCategory,
   sumMoney,
+  toUsdAmount,
   type QuoteLineItemCategoryValue,
   type QuoteSelections,
   type Vehicle,
@@ -88,6 +90,27 @@ export function computeRentalDurationDays(pickupAt: Date, returnAt: Date): numbe
   return Math.max(1, Math.ceil((returnAt.getTime() - pickupAt.getTime()) / MS_PER_DAY));
 }
 
+/**
+ * A vehicle row still priced in dirhams is quoted in dollars when the rules are in dollars: the amount
+ * is converted once, here, at the peg, so every line, fee, tax and total of the quote is derived from
+ * whole US cents and adds up exactly. Any other currency pairing is left as stored, and surfaces as
+ * CURRENCY_MISMATCH the moment it is combined with the rules' own money.
+ */
+function vehicleAmountInRulesCurrency(
+  amount: number,
+  vehicleCurrency: string,
+  rulesCurrency: string,
+): Money {
+  if (
+    vehicleCurrency !== rulesCurrency &&
+    vehicleCurrency === 'AED' &&
+    rulesCurrency === DISPLAY_CURRENCY
+  ) {
+    return Money.fromMajorUnits(toUsdAmount(amount, vehicleCurrency) ?? amount, rulesCurrency);
+  }
+  return Money.fromMajorUnits(amount, vehicleCurrency);
+}
+
 export function calculatePricing(input: PricingCalculationInput): PricingCalculationResult {
   const { vehicle, durationDays, selections, rules } = input;
 
@@ -100,20 +123,16 @@ export function calculatePricing(input: PricingCalculationInput): PricingCalcula
   }
 
   const currency = rules.currency;
-  const vehicleDailyRate = Money.fromMajorUnits(
-    vehicle.pricingProfile.dailyRate,
-    vehicle.pricingProfile.currency,
-  );
+  const vehicleMoney = (amount: number): Money =>
+    vehicleAmountInRulesCurrency(amount, vehicle.pricingProfile.currency, currency);
+  const vehicleDailyRate = vehicleMoney(vehicle.pricingProfile.dailyRate);
 
   const lineItems: ComputedLineItem[] = [];
 
   const fullWeeks = Math.floor(durationDays / 7);
   const remainderDays = durationDays % 7;
   if (fullWeeks > 0 && vehicle.pricingProfile.weeklyRate !== undefined) {
-    const weeklyRate = Money.fromMajorUnits(
-      vehicle.pricingProfile.weeklyRate,
-      vehicle.pricingProfile.currency,
-    );
+    const weeklyRate = vehicleMoney(vehicle.pricingProfile.weeklyRate);
     lineItems.push({
       category: QuoteLineItemCategory.BASE_RENTAL,
       code: 'BASE_RENTAL_WEEKLY',
@@ -234,7 +253,7 @@ export function calculatePricing(input: PricingCalculationInput): PricingCalcula
 
   const deposit =
     vehicle.pricingProfile.depositAmount !== undefined
-      ? Money.fromMajorUnits(vehicle.pricingProfile.depositAmount, vehicle.pricingProfile.currency)
+      ? vehicleMoney(vehicle.pricingProfile.depositAmount)
       : rules.defaultDepositAmount();
 
   return { currency, lineItems, taxes, fees, discounts, deposit, total };

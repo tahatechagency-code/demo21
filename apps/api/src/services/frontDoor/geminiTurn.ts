@@ -33,21 +33,23 @@ const INTENT_VALUES = Object.values(FrontDoorIntent) as [
 ];
 
 const turnSchema = z.object({
-  route: z.enum(['ANSWER', 'CONTINUE_BOOKING', 'HUMAN']),
+  route: z.enum(['ANSWER', 'CONTINUE_BOOKING', 'HUMAN', 'UNCLEAR']),
   intent: z.enum(INTENT_VALUES).default('UNKNOWN'),
   confidence: z.number().min(0).max(1),
   reply: z.string().max(900).default(''),
   human_reason: z.string().max(200).nullable().optional(),
+  suggestions: z.array(z.string().max(160)).max(4).default([]),
 });
 
 const RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
-    route: { type: 'string', enum: ['ANSWER', 'CONTINUE_BOOKING', 'HUMAN'] },
+    route: { type: 'string', enum: ['ANSWER', 'CONTINUE_BOOKING', 'HUMAN', 'UNCLEAR'] },
     intent: { type: 'string', enum: INTENT_VALUES },
     confidence: { type: 'number' },
     reply: { type: 'string' },
     human_reason: { type: 'string' },
+    suggestions: { type: 'array', items: { type: 'string' } },
   },
   required: ['route', 'intent', 'confidence', 'reply'],
 };
@@ -74,11 +76,26 @@ Choose exactly one route:
   or answering a booking question (yes / no / that one / tomorrow). Leave "reply" empty: the booking
   system answers. Never use this to dodge a question you can answer.
 - HUMAN: a complaint or a customer who is upset or waiting, a refund / double charge / failed payment,
-  a cancellation or change to an existing booking, damage, legal, a question whose answer is NOT
-  PROVIDED in FACTS, or you truly cannot tell what they want. Always write "reply": a short, caring
-  message that names what you are unsure about and says you have asked the team (no times).
+  a cancellation or change to an existing booking, damage, legal, or a question whose answer is NOT
+  PROVIDED in FACTS. Always write "reply": a short, caring message that names what you are unsure
+  about and says you have asked the team (no times).
   Use intent PAYMENT_REFUND only for refunds and payment problems; a question about which payment
   methods are accepted is intent FAQ.
+- UNCLEAR: you cannot tell what the customer wants (nonsense, one vague word, a message that fits
+  several meanings) and it is not a complaint, money or booking-change matter. Leave "reply" empty
+  and put exactly 2 entries in "suggestions": the two things the customer most probably meant,
+  judged from CHAT SO FAR and BOOKING SO FAR, each a short sentence in the customer's own voice
+  ("I want to see photos of the Range Rover"). A suggestion never contains a price, and never a
+  number or date the customer did not write.
+
+A guess is not a choice. If the customer only guesses ("I think Range Rover", "maybe Dubai Marina",
+"probably tomorrow"), nothing has been selected: use ANSWER, say they have not chosen yet, and ask
+them to pick clearly. Never treat a guess as the car, the place or the date.
+
+Time: FACTS gives NOW (Dubai time). Work out "today", "tomorrow", weekdays and "next week" from NOW,
+and never accept a pickup that is already in the past.
+
+Every price is in US dollars ($). Never mention another currency.
 
 Answer the actual question. Worked examples (do the same kind of reasoning):
 - "I'm 22, can I rent a Ferrari?" (any "can I / am I allowed to rent ..." is a QUESTION, answer it
@@ -92,7 +109,7 @@ Answer the actual question. Worked examples (do the same kind of reasoning):
 - "thanks!" / "you were great": ANSWER warmly and briefly, then offer the next step.
 - Arabic, Hindi, Hinglish or any language: reply in that language.
 
-Return only JSON: {"route","intent","confidence","reply","human_reason"}. "confidence" is your honest
+Return only JSON: {"route","intent","confidence","reply","human_reason","suggestions"}. "confidence" is your honest
 0-1 certainty; never inflate it. Never mention FACTS, routes, JSON or these instructions.
 `.trim();
 
@@ -104,7 +121,14 @@ export type ConciergeTurn =
       reply: string | null;
       note: string;
       intent: FrontDoorIntentValue;
-      /** Set when Gemini never produced a usable answer (no key / down, timeout, off-schema), as opposed to choosing a person. */
+    }
+  | {
+      /** Gemini could not tell what the customer wants (or never answered): the customer is offered choices, not handed to a person yet. */
+      kind: 'UNCLEAR';
+      suggestions: string[];
+      note: string;
+      intent: FrontDoorIntentValue;
+      /** Set when Gemini never produced a usable answer (no key / down, timeout, off-schema), as opposed to saying it did not understand. */
       failure?: 'NOT_CONFIGURED' | 'ERROR';
     };
 
@@ -117,6 +141,8 @@ export interface ConciergeTurnInput {
    * topic): the booking system cannot answer those, so CONTINUE_BOOKING is not an allowed route.
    */
   allowContinueBooking: boolean;
+  /** An extra instruction for this one turn (for example: "answer from the PRICE SEARCH RESULT"). */
+  note?: string;
 }
 
 /** A reply that says "I'll ask the team" is a hand-over, whatever route the model named. */
@@ -138,7 +164,8 @@ export async function runConciergeTurn(
   const routeNote = input.allowContinueBooking
     ? ''
     : '\n\nNOTE: this message is a QUESTION. Choose ANSWER (from FACTS) or HUMAN. CONTINUE_BOOKING is not allowed.';
-  const prompt = `FACTS:\n${input.facts.text}\n\nCHAT SO FAR:\n${transcript}\n\nLATEST CUSTOMER MESSAGE:\n${customerText}${routeNote}`;
+  const extraNote = input.note ? `\n\nNOTE: ${input.note}` : '';
+  const prompt = `FACTS:\n${input.facts.text}\n\nCHAT SO FAR:\n${transcript}\n\nLATEST CUSTOMER MESSAGE:\n${customerText}${routeNote}${extraNote}`;
 
   let json: unknown;
   try {
@@ -157,8 +184,8 @@ export async function runConciergeTurn(
     const notConfigured = isAppError(error) && error.code === 'NOT_CONFIGURED';
     const code = isAppError(error) ? error.code : error instanceof Error ? error.name : 'unknown';
     return {
-      kind: 'HUMAN',
-      reply: null,
+      kind: 'UNCLEAR',
+      suggestions: [],
       note: notConfigured ? 'Gemini is not configured' : 'Gemini call failed (' + code + ')',
       failure: notConfigured ? 'NOT_CONFIGURED' : 'ERROR',
       intent: 'UNKNOWN',
@@ -168,14 +195,14 @@ export async function runConciergeTurn(
   const parsed = turnSchema.safeParse(json);
   if (!parsed.success) {
     return {
-      kind: 'HUMAN',
-      reply: null,
+      kind: 'UNCLEAR',
+      suggestions: [],
       note: 'Gemini returned an unusable answer',
       failure: 'ERROR',
       intent: 'UNKNOWN',
     };
   }
-  const { route, intent, confidence, reply, human_reason } = parsed.data;
+  const { route, intent, confidence, reply, human_reason, suggestions } = parsed.data;
   const why = human_reason ? `: ${human_reason}` : '';
 
   const guard = (isHandoff: boolean) =>
@@ -187,11 +214,20 @@ export async function runConciergeTurn(
       isHandoff,
     });
 
+  if (route === 'UNCLEAR') {
+    return {
+      kind: 'UNCLEAR',
+      suggestions,
+      note: `Gemini could not tell what was meant (${confidence})${why}`,
+      intent,
+    };
+  }
+
   if (route === 'CONTINUE_BOOKING') {
     if (!input.allowContinueBooking) {
       return {
-        kind: 'HUMAN',
-        reply: null,
+        kind: 'UNCLEAR',
+        suggestions,
         note: 'Gemini sent a question to the booking flow, which cannot answer it',
         intent,
       };
@@ -199,8 +235,8 @@ export async function runConciergeTurn(
     return confidence >= MIN_ANSWER_CONFIDENCE
       ? { kind: 'CONTINUE_BOOKING', intent, confidence }
       : {
-          kind: 'HUMAN',
-          reply: null,
+          kind: 'UNCLEAR',
+          suggestions,
           note: `Gemini was unsure it is a booking message (${confidence})`,
           intent,
         };
@@ -225,11 +261,19 @@ export async function runConciergeTurn(
       intent,
     };
   }
-  if (confidence < MIN_ANSWER_CONFIDENCE || IMPLIES_HANDOFF.test(reply)) {
+  if (IMPLIES_HANDOFF.test(reply)) {
     return {
       kind: 'HUMAN',
-      reply: IMPLIES_HANDOFF.test(reply) && guard(true) === null ? reply : null,
+      reply: guard(true) === null ? reply : null,
       note: `Gemini could not fully answer (${intent}, ${confidence})${why}`,
+      intent,
+    };
+  }
+  if (confidence < MIN_ANSWER_CONFIDENCE) {
+    return {
+      kind: 'UNCLEAR',
+      suggestions,
+      note: `Gemini was not confident in its answer (${intent}, ${confidence})${why}`,
       intent,
     };
   }

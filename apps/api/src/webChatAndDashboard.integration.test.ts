@@ -135,7 +135,7 @@ describe('web chat + dashboard surfaces — integration', () => {
         const second = await chat(sessionId, FULL_DETAILS);
         expect(second.status).toBe(200);
         expect(second.body.journeyState).toBe('QUOTE_ISSUED');
-        expect(second.body.reply.text).toMatch(/Total: AED/);
+        expect(second.body.reply.text).toMatch(/Total: \$/);
         expect(second.body.quote).toMatchObject({ currency: 'AED', status: 'ISSUED' });
         expect(second.body.quote.total.minorUnits).toBeGreaterThan(0);
         // Customer-facing quote: every price line, nothing internal.
@@ -305,6 +305,12 @@ describe('web chat + dashboard surfaces — integration', () => {
           where: { source: 'HUMAN' },
         });
         expect(stored?.authorUserId).toBeTruthy();
+
+        // The first reply claims the escalation case, so the queue shows who is on it.
+        const claimed = await testApp.ctx.prisma.escalationCase.findFirst({
+          where: { status: 'IN_PROGRESS' },
+        });
+        expect(claimed?.assignedToUserId).toBe(stored?.authorUserId);
         const audit = await testApp.ctx.prisma.auditEvent.findFirst({
           where: { action: 'conversation.staff_reply' },
         });
@@ -342,7 +348,10 @@ describe('web chat + dashboard surfaces — integration', () => {
       });
       expect(reply.json()).toMatchObject({ delivered: true, delivery: 'SENT' });
       expect(whatsapp.sent).toEqual([
-        { to: '971500000123', body: 'We have your request and will call you shortly.' },
+        {
+          to: '971500000123',
+          body: '*Team member*\nWe have your request and will call you shortly.',
+        },
       ]);
     });
 
@@ -454,7 +463,7 @@ describe('web chat + dashboard surfaces — integration', () => {
             { state: 'ESCALATED', count: 1 },
           ]),
         );
-        expect(data.escalations).toMatchObject({ open: 1, inProgress: 0 });
+        expect(data.escalations).toMatchObject({ inProgress: 1 });
         expect(data.automation).toMatchObject({
           journeys: 2,
           escalatedJourneys: 1,

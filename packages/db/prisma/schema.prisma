@@ -905,7 +905,6 @@ enum EscalationReason {
 }
 
 enum EscalationStatus {
-  OPEN
   IN_PROGRESS
   RESOLVED
   CANCELLED
@@ -929,7 +928,7 @@ model EscalationCase {
   journey          Journey               @relation(fields: [journeyId], references: [id])
   tier             EscalationTier
   reason           EscalationReason
-  status           EscalationStatus      @default(OPEN)
+  status           EscalationStatus      @default(IN_PROGRESS)
   detail           String
   assignedToUserId String?
   assignedToUser   User?                 @relation(fields: [assignedToUserId], references: [id])
