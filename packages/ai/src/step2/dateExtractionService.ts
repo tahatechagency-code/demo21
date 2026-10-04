@@ -10,8 +10,10 @@ const WEEKDAY_PATTERN = WEEKDAYS.join('|');
 
 /** Wording that says a lone date is the return / the pickup. */
 const RETURN_CUE_RE =
-  /\b(?:return|returning|drop ?-?off|bring (?:it )?back|give (?:it )?back|until|till|back on)\b/i;
-const PICKUP_CUE_RE = /\b(?:pick ?-?up|collect|start|begin|from)\b/i;
+  /\b(?:return|returning|drop ?-?off|bring (?:it )?back|give (?:it )?back|until|till|tak|tk|wapas|vapas|back on)\b/i;
+const PICKUP_CUE_RE = /\b(?:pick ?-?up|collect|start|begin|from|se)\b/i;
+/** Wording that says the customer is changing something already given ("nahi 20 october"). */
+const CORRECTION_RE = /\b(?:nahi|nahin|no|not|actually|instead|change|badal\w*|make it|kar do|karo|kardo)\b/i;
 
 const VAGUE_RELATIVE_RE =
   /\b(next week|next month|sometime|soon|later|in a few days|one of these days)\b/i;
@@ -57,7 +59,7 @@ interface DateToken {
 /** A rental length the customer stated ("for 3 days", "a week", "ek mahina"). */
 export interface StatedDuration {
   amount: number;
-  unit: 'day' | 'week' | 'month';
+  unit: 'hour' | 'day' | 'week' | 'month';
 }
 
 /** A clock time the customer stated, and whether the wording ties it to the pickup or the return. */
@@ -67,17 +69,25 @@ export interface StatedTime {
   applies: 'PICKUP' | 'RETURN' | null;
 }
 
-function resolveYear(
-  month0: number,
-  day: number,
-  referenceDate: Date,
-  explicitYear?: number,
-): number {
+/**
+ * A day and month with no year that already passed this year belongs to NEXT year only when that is a
+ * plausible booking horizon (6 months). Further out it stays in the past, so validation reports it
+ * ("20 September" said in October is a mistake, never a booking for next September).
+ */
+export const YEARLESS_ROLLOVER_MAX_DAYS = 183;
+
+interface CalendarDay {
+  year: number;
+  month0: number;
+  day: number;
+}
+
+function resolveYear(month0: number, day: number, today: CalendarDay, explicitYear?: number): number {
   if (explicitYear !== undefined) return explicitYear;
-  const candidateUtc = Date.UTC(referenceDate.getUTCFullYear(), month0, day, DEFAULT_LOCAL_HOUR);
-  return candidateUtc < referenceDate.getTime()
-    ? referenceDate.getUTCFullYear() + 1
-    : referenceDate.getUTCFullYear();
+  const todayMs = Date.UTC(today.year, today.month0, today.day);
+  if (Date.UTC(today.year, month0, day) >= todayMs) return today.year;
+  const daysToNextYear = (Date.UTC(today.year + 1, month0, day) - todayMs) / 86_400_000;
+  return daysToNextYear <= YEARLESS_ROLLOVER_MAX_DAYS ? today.year + 1 : today.year;
 }
 
 function normalizeTwoDigitYear(yy: number): number {
@@ -136,7 +146,7 @@ function nextWeekday(
 /** "for 3 days", "a week", "2 weeks", "a month", "5 nights", "3 din", "ek hafte". */
 export function extractStatedDuration(text: string): StatedDuration | null {
   const re =
-    /\b(for\s+)?(\d{1,3}|a|an|one|two|three|four|five|six|seven|eight|nine|ten|ek|do|teen|char|panch)[\s-]*(days?|nights?|din|raat|weeks?|hafte|hafta|months?|mahina|mahine|mahinay)\b/i;
+    /\b(for\s+)?(\d{1,3}|a|an|one|two|three|four|five|six|seven|eight|nine|ten|ek|do|teen|char|panch)[\s-]*(hours?|hrs?|ghante|ghanta|ghanty|days?|nights?|din|raat|weeks?|hafte|hafta|months?|mahina|mahine|mahinay)\b/i;
   const match = re.exec(text);
   if (!match) return null;
   const amountRaw = match[2]!.toLowerCase();
@@ -147,11 +157,13 @@ export function extractStatedDuration(text: string): StatedDuration | null {
   if (/^(?:a|an|one|ek)$/.test(amountRaw) && !match[1] && /^(?:day|days|din|night|nights|raat)/.test(unitRaw)) {
     return null;
   }
-  const unit: StatedDuration['unit'] = /^(?:week|hafte|hafta)/.test(unitRaw)
-    ? 'week'
-    : /^(?:month|mahin)/.test(unitRaw)
-      ? 'month'
-      : 'day';
+  const unit: StatedDuration['unit'] = /^(?:hour|hr|ghant)/.test(unitRaw)
+    ? 'hour'
+    : /^(?:week|hafte|hafta)/.test(unitRaw)
+      ? 'week'
+      : /^(?:month|mahin)/.test(unitRaw)
+        ? 'month'
+        : 'day';
   return { amount, unit };
 }
 
@@ -218,6 +230,19 @@ export class DateExtractionService {
           returnDate = outcome.duration ? null : returnDate;
         } else if (returnDate === null && outcome.pickupDate.getTime() !== pickupDate.getTime()) {
           returnDate = outcome.pickupDate;
+        } else if (returnDate !== null && CORRECTION_RE.test(line)) {
+          // "nahi 20 october": a correction with no cue changes the return, or the pickup when it is earlier.
+          if (outcome.pickupDate.getTime() > pickupDate.getTime()) returnDate = outcome.pickupDate;
+          else pickupDate = outcome.pickupDate;
+        }
+      } else if (outcome.impossibleDateMentions.length === 0 && (pickupDate || returnDate)) {
+        // "nahi 20 tak", "return 21 karo", "pickup date 16": only a day number; the month is the booking's.
+        const fix = this.matchBareDayCorrection(line, pickupDate, returnDate, options);
+        if (fix?.date) {
+          if (fix.applies === 'RETURN') returnDate = fix.date;
+          else pickupDate = fix.date;
+        } else if (fix?.impossible) {
+          impossibleDateMentions.push(fix.impossible);
         }
       }
       if (outcome.duration) duration = outcome.duration;
@@ -235,7 +260,8 @@ export class DateExtractionService {
     let { pickupDate, returnDate } = outcome;
     const { duration, times } = outcome;
 
-    if (pickupDate && !returnDate && duration) {
+    // A length in hours is not a number of days: the reply explains that rentals are per day.
+    if (pickupDate && !returnDate && duration && duration.unit !== 'hour') {
       const start = localDay(pickupDate, options.timezone);
       const end =
         duration.unit === 'month'
@@ -280,7 +306,8 @@ export class DateExtractionService {
     const tokens: DateToken[] = [];
     let workingText = rawText;
 
-    const range = this.matchDayRange(workingText, options.referenceDate);
+    const today = localDay(options.referenceDate, options.timezone);
+    const range = this.matchDayRange(workingText, today);
     if (range) {
       tokens.push(...range.tokens);
       workingText = range.remainingText;
@@ -298,9 +325,9 @@ export class DateExtractionService {
       workingText = weekend.remainingText;
     }
 
-    tokens.push(...this.matchNamedMonthDates(workingText, options.referenceDate));
+    tokens.push(...this.matchNamedMonthDates(workingText, today));
     tokens.push(...this.matchIsoDates(workingText));
-    tokens.push(...this.matchNumericDates(workingText));
+    tokens.push(...this.matchNumericDates(workingText, today));
     tokens.push(...this.matchRelativeKeywords(workingText, options));
     tokens.push(...this.matchNextWeekday(workingText, options));
 
@@ -357,6 +384,49 @@ export class DateExtractionService {
     };
   }
 
+  /**
+   * A message that changes one date by naming only the day: "nahi 20 tak" (return), "return date 21 karo",
+   * "pickup date 16 kar do". The month and year are the ones of the date being changed. A day that does
+   * not exist in that month is reported, never fixed up.
+   */
+  private matchBareDayCorrection(
+    line: string,
+    pickupDate: Date | null,
+    returnDate: Date | null,
+    options: DateExtractionOptions,
+  ): { applies: 'PICKUP' | 'RETURN'; date?: Date; impossible?: string } | null {
+    const notAQuantity = '(?!\\s*(?:am|pm|:|din|days?|nights?|raat|weeks?|hafte|hafta|months?|mahin\\w*|km|aed|ghant\\w*|hours?|hrs?|seats?|cars?))';
+    const day = '(\\d{1,2})(?:st|nd|rd|th)?\\b';
+    const returnRe = new RegExp(
+      `\\b(?:return(?:ing)?|drop ?-?off|wapas|vapas|back)\\b[^\\d]{0,40}?${day}${notAQuantity}|(?:^|[\\s,])${day}\\s*(?:tak|till|until|tk)\\b`,
+      'i',
+    );
+    const pickupRe = new RegExp(`\\b(?:pick ?-?up|start|collect|from)\\b[^\\d]{0,40}?${day}${notAQuantity}`, 'i');
+
+    let applies: 'PICKUP' | 'RETURN';
+    let match = returnRe.exec(line);
+    if (match) applies = 'RETURN';
+    else {
+      match = pickupRe.exec(line);
+      if (!match) return null;
+      applies = 'PICKUP';
+    }
+    const dayNumber = Number(match[1] ?? match[2]);
+    const base = applies === 'RETURN' ? (returnDate ?? pickupDate) : (pickupDate ?? returnDate);
+    if (!base) return null;
+    let { year, month0 } = localDay(base, options.timezone);
+    // A return day on or before the pickup day (and no return yet) belongs to the next month.
+    if (applies === 'RETURN' && !returnDate && pickupDate) {
+      const pickupDay = localDay(pickupDate, options.timezone);
+      if (dayNumber <= pickupDay.day) ({ year, month0 } = addMonths({ year, month0, day: 1 }, 1));
+    }
+    if (!isValidCalendarDate(year, month0, dayNumber)) return { applies, impossible: match[0].trim() };
+    return {
+      applies,
+      date: zonedTimeToUtc(year, month0, dayNumber, DEFAULT_LOCAL_HOUR, 0, 0, options.timezone),
+    };
+  }
+
   /** "3pm", "5 pm", "at 15:00", "pickup at 9:30 am", "return by 5pm". */
   private matchTimes(text: string): StatedTime[] {
     const times: StatedTime[] = [];
@@ -381,24 +451,31 @@ export class DateExtractionService {
 
   private matchDayRange(
     text: string,
-    referenceDate: Date,
+    today: CalendarDay,
   ): { tokens: DateToken[]; remainingText: string } | null {
-    const rangeRe = new RegExp(
-      `\\b(\\d{1,2})(?:st|nd|rd|th)?\\s*(?:to|-|–|until|through)\\s*(\\d{1,2})(?:st|nd|rd|th)?\\s+${MONTH_NAME_PATTERN}\\.?\\s*(\\d{4})?\\b`,
+    // "15 to 19 Oct", "15-19 Oct", "15 se 19 october" (two days, one month) or "Oct 15 to 19" (month first).
+    const dayFirst = new RegExp(
+      `\\b(\\d{1,2})(?:st|nd|rd|th)?\\s*(?:to|-|–|until|till|through|se|tak)\\s*(\\d{1,2})(?:st|nd|rd|th)?\\s+${MONTH_NAME_PATTERN}\\.?\\s*(\\d{4})?\\b`,
       'i',
-    );
-    const match = rangeRe.exec(text);
-    if (!match?.[1] || !match[2] || !match[3]) return null;
-
-    const day1 = Number(match[1]);
-    const day2 = Number(match[2]);
-    const month0 = MONTHS[match[3].toLowerCase()];
+    ).exec(text);
+    const monthFirst = dayFirst
+      ? null
+      : new RegExp(
+          `\\b${MONTH_NAME_PATTERN}\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?\\s*(?:to|-|–|until|till|through|se|tak)\\s*(\\d{1,2})(?:st|nd|rd|th)?,?\\s*(\\d{4})?\\b`,
+          'i',
+        ).exec(text);
+    const match = dayFirst ?? monthFirst;
+    if (!match) return null;
+    const monthWord = dayFirst ? match[3] : match[1];
+    const day1 = Number(dayFirst ? match[1] : match[2]);
+    const day2 = Number(dayFirst ? match[2] : match[3]);
+    const month0 = monthWord ? MONTHS[monthWord.toLowerCase()] : undefined;
     if (month0 === undefined) return null;
     const explicitYear = match[4] ? Number(match[4]) : undefined;
 
     const tokens: DateToken[] = [];
     for (const [offset, day] of [[0, day1] as const, [1, day2] as const]) {
-      const year = resolveYear(month0, day, referenceDate, explicitYear);
+      const year = resolveYear(month0, day, today, explicitYear);
       if (!isValidCalendarDate(year, month0, day)) {
         tokens.push({ index: match.index + offset, local: null, impossible: true, raw: match[0] });
         continue;
@@ -461,7 +538,7 @@ export class DateExtractionService {
     };
   }
 
-  private matchNamedMonthDates(text: string, referenceDate: Date): DateToken[] {
+  private matchNamedMonthDates(text: string, today: CalendarDay): DateToken[] {
     const tokens: DateToken[] = [];
 
     const dayMonthRe = new RegExp(
@@ -473,7 +550,7 @@ export class DateExtractionService {
       const month0 = MONTHS[match[2]!.toLowerCase()];
       if (month0 === undefined) continue;
       tokens.push(
-        this.buildNamedMonthToken(match.index, match[0], day, month0, match[3], referenceDate),
+        this.buildNamedMonthToken(match.index, match[0], day, month0, match[3], today),
       );
     }
 
@@ -486,7 +563,7 @@ export class DateExtractionService {
       const day = Number(match[2]);
       if (month0 === undefined) continue;
       tokens.push(
-        this.buildNamedMonthToken(match.index, match[0], day, month0, match[3], referenceDate),
+        this.buildNamedMonthToken(match.index, match[0], day, month0, match[3], today),
       );
     }
 
@@ -499,10 +576,10 @@ export class DateExtractionService {
     day: number,
     month0: number,
     explicitYearRaw: string | undefined,
-    referenceDate: Date,
+    today: CalendarDay,
   ): DateToken {
     const explicitYear = explicitYearRaw ? Number(explicitYearRaw) : undefined;
-    const year = resolveYear(month0, day, referenceDate, explicitYear);
+    const year = resolveYear(month0, day, today, explicitYear);
     if (!isValidCalendarDate(year, month0, day)) {
       return { index, local: null, impossible: true, raw };
     }
@@ -529,37 +606,58 @@ export class DateExtractionService {
     return tokens;
   }
 
-  private matchNumericDates(text: string): DateToken[] {
+  /**
+   * "15/10/2026", "15-10-26" and a yearless "12/10". Day-first (the UAE way) is used as soon as the
+   * message contains one date that can only be day-first ("15/10" cannot be month-first); a lone
+   * "10/11" that could be either is reported as an ambiguity instead of being guessed.
+   */
+  private matchNumericDates(text: string, today: CalendarDay): DateToken[] {
     const tokens: DateToken[] = [];
-    const numericRe = /\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b/g;
+    const numericRe = /\b(\d{1,2})([/-])(\d{1,2})(?:\2(\d{2,4}))?\b/g;
+
+    interface Reading {
+      match: RegExpMatchArray;
+      dayMonth: { day: number; month0: number } | null;
+      monthDay: { day: number; month0: number } | null;
+      year: number | null;
+    }
+    const readings: Reading[] = [];
     for (const match of text.matchAll(numericRe)) {
+      const yearRaw = match[4];
+      // "15-19" is a day range, not a date: without a year only a slash makes a numeric date.
+      if (yearRaw === undefined && match[2] === '-') continue;
       const a = Number(match[1]);
-      const b = Number(match[2]);
-      const yearRaw = match[3]!;
-      const year = yearRaw.length <= 2 ? normalizeTwoDigitYear(Number(yearRaw)) : Number(yearRaw);
+      const b = Number(match[3]);
+      const knownYear =
+        yearRaw === undefined ? null : yearRaw.length <= 2 ? normalizeTwoDigitYear(Number(yearRaw)) : Number(yearRaw);
+      const checkYear = knownYear ?? today.year;
+      const dayMonth =
+        a >= 1 && a <= 31 && b >= 1 && b <= 12 && isValidCalendarDate(checkYear, b - 1, a)
+          ? { day: a, month0: b - 1 }
+          : null;
+      const monthDay =
+        a >= 1 && a <= 12 && b >= 1 && b <= 31 && isValidCalendarDate(checkYear, a - 1, b)
+          ? { day: b, month0: a - 1 }
+          : null;
+      readings.push({ match, dayMonth, monthDay, year: knownYear });
+    }
 
-      const asDayMonth = a >= 1 && a <= 31 && b >= 1 && b <= 12 ? { day: a, month0: b - 1 } : null;
-      const asMonthDay = a >= 1 && a <= 12 && b >= 1 && b <= 31 ? { day: b, month0: a - 1 } : null;
+    const sameResult = (r: Reading) =>
+      r.dayMonth && r.monthDay && r.dayMonth.month0 === r.monthDay.month0 && r.dayMonth.day === r.monthDay.day;
+    const onlyDayFirst = readings.some((r) => r.dayMonth && !r.monthDay);
+    const onlyMonthFirst = readings.some((r) => r.monthDay && !r.dayMonth);
+    const convention: 'DM' | 'MD' | null = onlyDayFirst ? 'DM' : onlyMonthFirst ? 'MD' : null;
 
-      const validDayMonth =
-        asDayMonth && isValidCalendarDate(year, asDayMonth.month0, asDayMonth.day);
-      const validMonthDay =
-        asMonthDay && isValidCalendarDate(year, asMonthDay.month0, asMonthDay.day);
-
-      if (!validDayMonth && !validMonthDay) {
-        tokens.push({ index: match.index, local: null, impossible: true, raw: match[0] });
+    for (const reading of readings) {
+      const { match, dayMonth, monthDay, year } = reading;
+      const index = match.index ?? 0;
+      if (!dayMonth && !monthDay) {
+        tokens.push({ index, local: null, impossible: true, raw: match[0] });
         continue;
       }
-
-      const sameResult =
-        validDayMonth &&
-        validMonthDay &&
-        asDayMonth!.month0 === asMonthDay!.month0 &&
-        asDayMonth!.day === asMonthDay!.day;
-
-      if (validDayMonth && validMonthDay && !sameResult) {
+      if (dayMonth && monthDay && !sameResult(reading) && convention === null) {
         tokens.push({
-          index: match.index,
+          index,
           local: null,
           raw: match[0],
           ambiguity: {
@@ -571,12 +669,11 @@ export class DateExtractionService {
         });
         continue;
       }
-
-      const resolved = (validDayMonth ? asDayMonth : asMonthDay)!;
+      const resolved = (convention === 'MD' ? (monthDay ?? dayMonth) : (dayMonth ?? monthDay))!;
       tokens.push({
-        index: match.index,
+        index,
         local: {
-          year,
+          year: year ?? resolveYear(resolved.month0, resolved.day, today),
           month0: resolved.month0,
           day: resolved.day,
           hour: DEFAULT_LOCAL_HOUR,
