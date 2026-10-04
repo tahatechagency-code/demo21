@@ -127,7 +127,7 @@ export const journeyContextSchema = z.object({
    * "still missing something, but new facts keep arriving one at a time".
    * Only the second one should ever reset `missingInfoAttempts`.
    */
-  missingInfoFingerprint: z.string().nullable(),
+  missingInfoFingerprint: z.string().nullable().default(null),
 });
 export type JourneyContext = z.infer<typeof journeyContextSchema>;
 
@@ -214,14 +214,17 @@ export const escalationReasonSchema = z.enum([
 ]);
 export type EscalationReasonValue = z.infer<typeof escalationReasonSchema>;
 
+/**
+ * A case is IN_PROGRESS from the moment the AI could not handle the chat — the whole team sees it, and
+ * a staff member's first reply claims it. It leaves only when staff hand the chat back to the AI or end
+ * it (RESOLVED), or when the situation resolved itself (CANCELLED). There is no "open, unclaimed" lane.
+ */
 export const EscalationStatus = {
-  OPEN: 'OPEN',
   IN_PROGRESS: 'IN_PROGRESS',
   RESOLVED: 'RESOLVED',
   CANCELLED: 'CANCELLED',
 } as const;
 export const escalationStatusSchema = z.enum([
-  EscalationStatus.OPEN,
   EscalationStatus.IN_PROGRESS,
   EscalationStatus.RESOLVED,
   EscalationStatus.CANCELLED,
@@ -271,6 +274,17 @@ export const escalationCaseSchema = z.object({
   updatedAt: z.string().datetime(),
 });
 export type EscalationCase = z.infer<typeof escalationCaseSchema>;
+
+/** A case as the Escalation Queue lists it: the chat it belongs to, and whether a person has already answered in it. */
+export const escalationCaseListItemSchema = escalationCaseSchema.extend({
+  conversationId: z.string().uuid(),
+  channel: z.enum(['WHATSAPP', 'WEB', 'EMAIL']),
+  customerRef: z.string(),
+  /** A staff member has written to the customer in this chat since the case was raised. */
+  humanReplied: z.boolean(),
+  lastHumanReplyAt: z.string().datetime().nullable(),
+});
+export type EscalationCaseListItem = z.infer<typeof escalationCaseListItemSchema>;
 
 export const createEscalationCaseInputSchema = z.object({
   journeyId: z.string().uuid(),

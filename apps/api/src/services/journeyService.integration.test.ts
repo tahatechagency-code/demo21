@@ -138,7 +138,7 @@ describe('journeyService', () => {
       expect(third.state).toBe(JourneyState.ESCALATED);
       const cases = await listEscalationCases(prisma, {
         tenantId: TEST_TENANT_ID,
-        status: 'OPEN',
+        status: 'IN_PROGRESS',
         limit: 10,
         offset: 0,
       });
@@ -167,7 +167,13 @@ describe('journeyService', () => {
       // location) — real progress every time, so the stall counter (which
       // would fire at 3) must never trip even though this is 5 NEEDS_INFO
       // turns in a row.
-      const fingerprints = ['fp-vehicle', 'fp-vehicle-pickup', 'fp-vehicle-pickup-return', 'fp-vehicle-pickup-return-loc', 'fp-vehicle-pickup-return-loc-dropoff'];
+      const fingerprints = [
+        'fp-vehicle',
+        'fp-vehicle-pickup',
+        'fp-vehicle-pickup-return',
+        'fp-vehicle-pickup-return-loc',
+        'fp-vehicle-pickup-return-loc-dropoff',
+      ];
       let last;
       for (const collectedFingerprint of fingerprints) {
         last = await syncJourneyAfterMissingInfo(
@@ -284,7 +290,7 @@ describe('journeyService', () => {
       expect(journey?.state).toBe(JourneyState.ESCALATED);
       const openCase = await listEscalationCases(prisma, {
         tenantId: TEST_TENANT_ID,
-        status: 'OPEN',
+        status: 'IN_PROGRESS',
         limit: 10,
         offset: 0,
       });
@@ -509,7 +515,7 @@ describe('journeyService', () => {
       expect(journey?.state).toBe(JourneyState.ESCALATED);
       const openCase = await listEscalationCases(prisma, {
         tenantId: TEST_TENANT_ID,
-        status: 'OPEN',
+        status: 'IN_PROGRESS',
         limit: 10,
         offset: 0,
       });

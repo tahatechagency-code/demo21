@@ -10,6 +10,7 @@ export * from './sandbox/toolPermissionMatrix.js';
 // Conversation Engine — Gemini function-calling: Intent Classification +
 // Requirement Extraction + Function Calling + Conversation State
 export * from './router/frontDoor.js';
+export * from './router/clarify.js';
 export * from './router/photoRequest.js';
 export * from './router/faqTopics.js';
 export * from './router/replyGuard.js';

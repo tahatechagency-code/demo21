@@ -1,4 +1,5 @@
 import { createHash, createHmac } from 'node:crypto';
+import { boldOptionLines } from '@ai-concierge/ai';
 import { parseWhatsAppTextMessages, verifyMetaSignature } from '@ai-concierge/channels';
 import {
   claimIdempotencyKey,
@@ -71,7 +72,11 @@ async function processInboundMessage(
       { tenantId: ctx.config.DEFAULT_TENANT_ID, channel: WHATSAPP_CHANNEL, text: replyText },
     );
 
-    const sendResult = await ctx.whatsappProvider.sendTextMessage(inbound.from, replyText);
+    // WhatsApp shows *text* in bold: the numbered options of a clarification stand out. What is stored stays plain.
+    const sendResult = await ctx.whatsappProvider.sendTextMessage(
+      inbound.from,
+      boldOptionLines(replyText),
+    );
     // The car photos the customer asked for follow the text as inline pictures.
     let photosSent = 0;
     if (sendResult.status === 'SENT') {

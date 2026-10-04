@@ -1,22 +1,34 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { resolveEscalationBodySchema } from '@ai-concierge/contracts';
-import { assignEscalation, resolveEscalation } from '../../../lib/adminApi';
+import { resolveEscalation } from '../../../lib/adminApi';
 
-export async function assignEscalationAction(escalationCaseId: string): Promise<void> {
-  await assignEscalation(escalationCaseId);
-  revalidatePath('/dashboard/escalations');
+const MAX_NOTE_LENGTH = 1000;
+
+/** The resolution note is optional in the form; the record always carries one. */
+function noteFrom(formData: FormData, fallback: string): string {
+  const typed = formData.get('note');
+  const note = typeof typed === 'string' ? typed.trim() : '';
+  return (note || fallback).slice(0, MAX_NOTE_LENGTH);
 }
 
-export async function resolveEscalationAction(
+/** The person is done: the AI carries on with the customer from where the chat was escalated. */
+export async function handBackToAiAction(
   escalationCaseId: string,
   formData: FormData,
 ): Promise<void> {
-  const parsed = resolveEscalationBodySchema.parse({
-    resolution: formData.get('resolution'),
-    resolutionNote: formData.get('resolutionNote'),
+  await resolveEscalation(escalationCaseId, {
+    resolution: 'APPROVED',
+    resolutionNote: noteFrom(formData, 'Handed back to the AI by staff'),
   });
-  await resolveEscalation(escalationCaseId, parsed);
+  revalidatePath('/dashboard/escalations');
+}
+
+/** The person closes the conversation; it ends as declined. */
+export async function endChatAction(escalationCaseId: string, formData: FormData): Promise<void> {
+  await resolveEscalation(escalationCaseId, {
+    resolution: 'REJECTED',
+    resolutionNote: noteFrom(formData, 'Chat ended by staff'),
+  });
   revalidatePath('/dashboard/escalations');
 }

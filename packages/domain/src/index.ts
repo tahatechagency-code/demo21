@@ -13,6 +13,7 @@ export * from './eligibilityIntake.js';
 export * from './availability.js';
 export * from './alternatives.js';
 export * from './money.js';
+export * from './clarifyOptions.js';
 export * from './quote.js';
 export * from './journey.js';
 export * from './crm.js';

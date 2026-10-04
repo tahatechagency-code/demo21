@@ -1,3 +1,5 @@
+import { formatUsdMinor } from '@ai-concierge/domain';
+
 export function formatFieldName(field: string): string {
   return field.replace(/([A-Z])/g, ' $1').replace(/^./, (char) => char.toUpperCase());
 }
@@ -21,14 +23,11 @@ export function formatEnumLabel(value: string): string {
 }
 
 /**
- * `{ minorUnits: 1470000, currency: 'AED' }` -> `AED 14,700`; `1475250` -> `AED 14,752.50`.
- * Amounts are integer minor units, never floats; cents show as two digits or not at all.
+ * Every price on every screen is in dirhams: `{ minorUnits: 1470000, currency: 'AED' }` -> `AED 14,700`,
+ * `1475250` -> `AED 14,752.50`. Amounts are integer minor units, never floats; cents show as two digits
+ * or not at all. Money still stored in dirhams is converted at the fixed peg (see `formatUsdMinor`).
  */
-export function formatMoney(minorUnits: number, currency: string): string {
-  const major = minorUnits / 100;
-  const digits = minorUnits % 100 === 0 ? 0 : 2;
-  return `${currency} ${major.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
-}
+export const formatMoney = formatUsdMinor;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 

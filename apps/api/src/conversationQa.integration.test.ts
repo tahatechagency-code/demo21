@@ -190,7 +190,7 @@ describe('conversation QA — 25 scenarios', () => {
     const result = await chat(randomUUID(), 'cancel my booking');
     expect(result.escalated).toBe(true);
     expect(result.reply.text).toMatch(/nothing has been cancelled/i);
-    expect((await cases()).map((row) => row.status)).toEqual(['OPEN']);
+    expect((await cases()).map((row) => row.status)).toEqual(['IN_PROGRESS']);
     expect(gemini.calls).toBe(0);
   });
 
@@ -240,7 +240,7 @@ describe('conversation QA — 25 scenarios', () => {
     expect(second.reply.text).toMatch(/CONTACT MY TEAM/);
     const third = await chat(session, '4');
     expect(third.escalated).toBe(true);
-    expect((await cases()).map((row) => row.status)).toEqual(['OPEN']);
+    expect((await cases()).map((row) => row.status)).toEqual(['IN_PROGRESS']);
   });
 
   it('06 multiple intents: price + cancel + delivery -> price answered, cancel handed over once', async () => {
@@ -363,7 +363,7 @@ describe('conversation QA — 25 scenarios', () => {
     const result = await chat(randomUUID(), 'I want to talk to a real person');
     expect(result.escalated).toBe(true);
     const [row] = await cases();
-    expect(row!.status).toBe('OPEN');
+    expect(row!.status).toBe('IN_PROGRESS');
     const transcript = await testApp.ctx.prisma.message.count({
       where: { conversationId: result.conversationId },
     });

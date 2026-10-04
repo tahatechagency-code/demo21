@@ -1,5 +1,6 @@
 'use client';
 
+import { CONTACT_TEAM_LABEL, splitClarifyMessage } from '@ai-concierge/domain';
 import { useEffect, useRef, useState } from 'react';
 import { customerStepFor } from '../../lib/customerJourney';
 import { formatDateTime } from '../../lib/format';
@@ -34,6 +35,58 @@ function TypingBubble() {
 }
 
 /**
+ * When the concierge did not understand, its message carries numbered options. They are drawn as
+ * highlighted buttons — impossible to miss — and picking one sends that option as the customer's reply.
+ */
+function ClarifyOptions({
+  intro,
+  options,
+  active,
+  onPick,
+}: {
+  intro: string;
+  options: string[];
+  active: boolean;
+  onPick: (option: string) => void;
+}) {
+  return (
+    <div data-testid="clarify-options">
+      {intro && <p className="whitespace-pre-wrap break-words">{intro}</p>}
+      <ol className="mt-3 space-y-2" aria-label="Choose one">
+        {options.map((option, index) => {
+          const isTeam = option === CONTACT_TEAM_LABEL;
+          return (
+            <li key={option}>
+              <button
+                type="button"
+                disabled={!active}
+                onClick={() => onPick(option)}
+                className={`flex w-full items-start gap-3 rounded-2xl border-2 px-3 py-2.5 text-left text-sm font-semibold transition-colors disabled:cursor-default ${
+                  active
+                    ? isTeam
+                      ? 'border-copper-300 bg-copper-500/25 text-cream-50 shadow-[0_0_16px_rgba(224,150,90,0.35)] hover:bg-copper-500/40'
+                      : 'border-copper-300/90 bg-copper-500/15 text-cream-50 shadow-[0_0_16px_rgba(224,150,90,0.25)] hover:bg-copper-500/30'
+                    : 'border-white/10 bg-white/5 text-cream-50/50'
+                }`}
+              >
+                <span
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                    active ? 'bg-copper-gradient text-ink-900' : 'bg-white/10 text-cream-50/60'
+                  }`}
+                >
+                  {index + 1}
+                </span>
+                <span className="pt-0.5">{option}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+/**
  * The customer's chat with the concierge. Everything the customer sees is what
  * the server holds for their session: the AI's replies, a team member's
  * replies (clearly labelled), and their own messages. Unsent or failed messages
@@ -48,6 +101,12 @@ export function ChatView() {
   const quote = chat.session?.quote ?? null;
   const canConfirm = quote !== null && chat.session?.journeyState === 'QUOTE_ISSUED';
   const empty = chat.messages.length === 0 && chat.pending.length === 0;
+  // Only the newest message can be answered with its options, and only while nothing else is in flight.
+  const lastMessage = chat.messages[chat.messages.length - 1];
+  const openOptionsId =
+    lastMessage && lastMessage.role !== 'CUSTOMER' && splitClarifyMessage(lastMessage.content)
+      ? lastMessage.id
+      : null;
 
   useEffect(() => {
     const box = boxRef.current;
@@ -123,6 +182,7 @@ export function ChatView() {
           {chat.messages.map((message) => {
             const mine = message.role === 'CUSTOMER';
             const staff = message.role === 'STAFF';
+            const clarify = mine ? null : splitClarifyMessage(message.content);
             return (
               <li key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
                 <div
@@ -130,16 +190,32 @@ export function ChatView() {
                     mine
                       ? 'bg-copper-gradient text-ink-900'
                       : staff
-                        ? 'border border-copper-300/60 bg-emerald-700/70 text-cream-50'
+                        ? 'border-2 border-copper-300 bg-emerald-700 text-cream-50 shadow-[0_0_26px_rgba(224,150,90,0.5)]'
                         : 'border border-white/10 bg-emerald-800/80 text-cream-50'
                   }`}
+                  data-testid={staff ? 'staff-message' : undefined}
                 >
                   {staff && (
-                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-copper-300">
+                    <p className="mb-1 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-copper-300">
+                      <span aria-hidden="true" className="h-2 w-2 rounded-full bg-copper-300" />
                       Team member
                     </p>
                   )}
-                  <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                  {clarify ? (
+                    <ClarifyOptions
+                      intro={clarify.intro}
+                      options={clarify.options}
+                      active={
+                        message.id === openOptionsId && chat.pending.length === 0 && !chat.sending
+                      }
+                      onPick={(option) => {
+                        followRef.current = true;
+                        chat.send(option);
+                      }}
+                    />
+                  ) : (
+                    <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                  )}
                   {message.attachments.length > 0 && (
                     <ul className="mt-2 grid grid-cols-2 gap-2" aria-label="Photos">
                       {message.attachments.map((attachment) => (

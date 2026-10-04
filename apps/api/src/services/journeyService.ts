@@ -5,7 +5,7 @@ import {
   createJourney,
   findActiveUsersByRole,
   findUserById,
-  findOpenEscalationCaseForJourney,
+  findActiveEscalationCaseForJourney,
   findJourneyByConversationId,
   findJourneyTransitions,
   PrismaAuditWriter,
@@ -594,8 +594,9 @@ export async function isStalledInfoEscalation(
     input.conversationId,
   );
   if (!journey || journey.state !== JourneyState.ESCALATED) return false;
-  const open = await findOpenEscalationCaseForJourney(deps.prisma, input.tenantId, journey.id);
-  return open?.reason === EscalationReason.MISSING_INFO_STALLED;
+  const open = await findActiveEscalationCaseForJourney(deps.prisma, input.tenantId, journey.id);
+  // Once a staff member has claimed the chat it stays with them until they hand it back.
+  return open?.reason === EscalationReason.MISSING_INFO_STALLED && open.assignedToUserId === null;
 }
 
 /**
@@ -613,8 +614,10 @@ export async function resumeStalledJourney(
     await acquireJourneyLock(tx, input.tenantId, input.conversationId);
     const journey = await findJourneyByConversationId(tx, input.tenantId, input.conversationId);
     if (!journey || journey.state !== JourneyState.ESCALATED) return null;
-    const open = await findOpenEscalationCaseForJourney(tx, input.tenantId, journey.id);
-    if (open?.reason !== EscalationReason.MISSING_INFO_STALLED) return null;
+    const open = await findActiveEscalationCaseForJourney(tx, input.tenantId, journey.id);
+    if (open?.reason !== EscalationReason.MISSING_INFO_STALLED || open.assignedToUserId !== null) {
+      return null;
+    }
 
     const reason = 'Customer supplied the missing booking information';
     if (
@@ -670,7 +673,7 @@ export async function notifyOpenCaseOfCustomerMessage(
 ): Promise<boolean> {
   const journey = await findJourneyByConversationId(deps.prisma, input.tenantId, input.conversationId);
   if (!journey || journey.state !== JourneyState.ESCALATED) return false;
-  const open = await findOpenEscalationCaseForJourney(deps.prisma, input.tenantId, journey.id);
+  const open = await findActiveEscalationCaseForJourney(deps.prisma, input.tenantId, journey.id);
   if (!open) return false;
 
   const body = `AI Concierge: the customer wrote again in an open case (${open.id}). Open the dashboard chat to reply.`;

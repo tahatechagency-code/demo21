@@ -12,7 +12,7 @@ export interface DashboardSummaryData {
     active: number;
     byState: Array<{ state: string; count: number }>;
   };
-  escalations: { open: number; inProgress: number; slaBreached: number };
+  escalations: { inProgress: number; slaBreached: number };
   automation: { journeys: number; escalatedJourneys: number; percentAutomated: number | null };
   quotes: {
     issued: number;
@@ -43,7 +43,7 @@ export async function getDashboardSummary(
       db.journey.groupBy({ by: ['state'], where: { tenantId }, _count: { _all: true } }),
       db.escalationCase.groupBy({ by: ['status'], where: { tenantId }, _count: { _all: true } }),
       db.escalationCase.count({
-        where: { tenantId, slaBreached: true, status: { in: ['OPEN', 'IN_PROGRESS'] } },
+        where: { tenantId, slaBreached: true, status: 'IN_PROGRESS' },
       }),
       db.$queryRaw<Array<{ count: bigint }>>(
         Prisma.sql`SELECT count(DISTINCT "journeyId") AS count FROM "escalation_cases" WHERE "tenantId" = ${tenantId}`,
@@ -88,7 +88,6 @@ export async function getDashboardSummary(
   return {
     journeys: { total: totalJourneys, active: activeJourneys, byState },
     escalations: {
-      open: countFor('OPEN'),
       inProgress: countFor('IN_PROGRESS'),
       slaBreached: breached,
     },

@@ -247,7 +247,10 @@ describe('email resend — integration', () => {
     });
     expect(failedStaffMessage?.status).toBe('FAILED');
     expect(failedStaffMessage?.authorUserId).toBe(staffUser.id);
-    expect(failedStaffMessage?.content).toBe('Checking with the team and back to you shortly.');
+    // Stored as sent (with the "Team member" label), so a resend delivers exactly what the customer was meant to get.
+    expect(failedStaffMessage?.content).toBe(
+      'Team member:\n\nChecking with the team and back to you shortly.',
+    );
 
     const resend = await testApp.app.inject({
       method: 'POST',

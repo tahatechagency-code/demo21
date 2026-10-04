@@ -1,78 +1,52 @@
-import { EscalationStatus, type EscalationStatusValue } from '@ai-concierge/domain';
 import { PillButton } from '../../../components/ui/PillButton';
-import { assignEscalationAction, resolveEscalationAction } from './actions';
+import { endChatAction, handBackToAiAction } from './actions';
 
+/**
+ * What a person does with a chat the AI could not handle: answer the customer (Open chat), then hand
+ * the chat back to the AI, or end it. The chat stays In progress until one of those two is done — a
+ * person who has not handed it back is still the one looking after it.
+ */
 export function EscalationActions({
   escalationCaseId,
-  status,
   assignedToUserId,
   currentUserId,
 }: {
   escalationCaseId: string;
-  status: EscalationStatusValue;
   assignedToUserId: string | null;
   currentUserId: string;
 }) {
-  if (status === EscalationStatus.OPEN) {
+  if (assignedToUserId !== null && assignedToUserId !== currentUserId) {
     return (
-      <form action={assignEscalationAction.bind(null, escalationCaseId)} className="mt-4">
-        <PillButton type="submit">Assign to me</PillButton>
-      </form>
+      <p className="mt-4 text-xs uppercase tracking-wide text-cream-50/50">
+        Another staff member is handling this chat
+      </p>
     );
   }
 
-  if (status === EscalationStatus.IN_PROGRESS) {
-    if (assignedToUserId !== currentUserId) {
-      return (
-        <p className="mt-4 text-xs uppercase tracking-wide text-cream-50/50">
-          Assigned to another staff member
-        </p>
-      );
-    }
-
-    return (
-      <form
-        action={resolveEscalationAction.bind(null, escalationCaseId)}
-        className="mt-4 space-y-3"
-      >
-        <fieldset className="flex gap-4">
-          <legend className="mb-2 text-xs uppercase tracking-wide text-cream-50/70">
-            Resolution
-          </legend>
-          <label className="flex items-center gap-2 text-sm text-cream-50">
-            <input
-              type="radio"
-              name="resolution"
-              value="APPROVED"
-              required
-              className="accent-copper-500"
-            />
-            Approve
-          </label>
-          <label className="flex items-center gap-2 text-sm text-cream-50">
-            <input
-              type="radio"
-              name="resolution"
-              value="REJECTED"
-              required
-              className="accent-copper-500"
-            />
-            Reject
-          </label>
-        </fieldset>
-        <textarea
-          name="resolutionNote"
-          required
-          minLength={1}
+  return (
+    <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
+      <form action={handBackToAiAction.bind(null, escalationCaseId)} className="space-y-3">
+        <input
+          name="note"
           maxLength={1000}
-          rows={2}
-          placeholder="Note for the record — what you decided and why"
-          className="w-full rounded-2xl border border-white/10 bg-emerald-900/60 p-3 text-sm text-cream-50 placeholder:text-cream-50/40 focus:border-copper-300 focus:outline-none"
+          placeholder="Note for the record (optional)"
+          className="w-full rounded-2xl border border-white/10 bg-emerald-900/60 px-4 py-2 text-sm text-cream-50 placeholder:text-cream-50/40 focus:border-copper-300 focus:outline-none"
         />
-        <PillButton type="submit">Resolve</PillButton>
+        <div className="flex flex-wrap gap-3">
+          <PillButton type="submit">Hand over to AI</PillButton>
+          <PillButton
+            type="submit"
+            variant="outline"
+            formAction={endChatAction.bind(null, escalationCaseId)}
+          >
+            End chat
+          </PillButton>
+        </div>
       </form>
-    );
-  }
-
-  return null;
+      <p className="text-xs text-cream-50/50">
+        Hand over to AI: the AI carries on with the customer from where the chat was escalated. End
+        chat: the conversation is declined and closed.
+      </p>
+    </div>
+  );
 }

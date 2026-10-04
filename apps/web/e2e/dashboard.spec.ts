@@ -1,11 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import type { EligibilityPolicyRules } from '@ai-concierge/domain';
-import {
-  createEligibilityPolicyVersion,
-  createVehicle,
-  createVehicleUnit,
-} from '@ai-concierge/db';
+import { createEligibilityPolicyVersion, createVehicle, createVehicleUnit } from '@ai-concierge/db';
 import {
   createTestPrismaClient,
   seedTestUser,
@@ -114,7 +110,11 @@ test.describe('Dashboard — Phase 16 automatic journey (Steps 5-8)', () => {
           where: { tenantId: TEST_TENANT_ID, vehicleId: urus.id, unitRef },
         });
         if (!existingUnit) {
-          await createVehicleUnit(prisma, { tenantId: TEST_TENANT_ID, vehicleId: urus.id, unitRef });
+          await createVehicleUnit(prisma, {
+            tenantId: TEST_TENANT_ID,
+            vehicleId: urus.id,
+            unitRef,
+          });
         }
       }
       const existingPolicy = await prisma.eligibilityPolicy.findFirst({
@@ -207,5 +207,14 @@ test.describe('Dashboard — Phase 16 automatic journey (Steps 5-8)', () => {
     // this trigger, so a retry or a future sibling test producing the same
     // detail text can never turn this into a strict-mode failure.
     await expect(page.getByText('Customer asked to speak with a person').first()).toBeVisible();
+
+    // The queue has In progress / Resolved / Cancelled only — no "All" and no "Open" lane.
+    await expect(page.getByRole('link', { name: 'In progress' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'All', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Open', exact: true })).toHaveCount(0);
+
+    // Every case offers the full chat, and the person decides when to hand it back to the AI.
+    await expect(page.getByRole('link', { name: 'Open chat' }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Hand over to AI' }).first()).toBeVisible();
   });
 });

@@ -6,8 +6,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   test: {
-    // e2e/**/*.spec.ts are Playwright specs, run via `pnpm test:e2e`, not vitest.
-    exclude: ['**/node_modules/**', '**/e2e/**', '**/.next/**'],
+    // e2e/ and e2e-live/ hold Playwright specs (`pnpm test:e2e`, `pnpm test:e2e:live`), not vitest tests.
+    exclude: ['**/node_modules/**', '**/e2e/**', '**/e2e-live/**', '**/.next/**'],
   },
   resolve: {
     alias: {

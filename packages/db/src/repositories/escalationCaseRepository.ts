@@ -9,6 +9,7 @@ import {
   escalationCaseSchema,
   type CreateEscalationCaseInput,
   type EscalationCase,
+  type EscalationCaseListItem,
   type EscalationResolutionValue,
   type TenantId,
 } from '@ai-concierge/domain';
@@ -66,17 +67,14 @@ export async function findEscalationCaseById(
   return row ? toDomainEscalationCase(row) : null;
 }
 
-export async function findOpenEscalationCaseForJourney(
+/** The journey's case that is still with the team (IN_PROGRESS); a journey has at most one at a time. */
+export async function findActiveEscalationCaseForJourney(
   db: Executor,
   tenantId: TenantId,
   journeyId: string,
 ): Promise<EscalationCase | null> {
   const row = await db.escalationCase.findFirst({
-    where: {
-      tenantId,
-      journeyId,
-      status: { in: [EscalationStatus.OPEN, EscalationStatus.IN_PROGRESS] },
-    },
+    where: { tenantId, journeyId, status: EscalationStatus.IN_PROGRESS },
     orderBy: { createdAt: 'desc' },
   });
   return row ? toDomainEscalationCase(row) : null;
@@ -93,7 +91,12 @@ export interface ListEscalationCasesParams {
 export async function listEscalationCases(
   db: Executor,
   params: ListEscalationCasesParams,
-): Promise<EscalationCase[]> {
+): Promise<EscalationCaseListItem[]> {
+  const inProgress = params.status === EscalationStatus.IN_PROGRESS;
+  // The queue is worked oldest-first with overdue cases on top; finished cases read newest-first.
+  const orderBy: Prisma.EscalationCaseOrderByWithRelationInput[] = inProgress
+    ? [{ slaBreached: 'desc' }, { createdAt: 'asc' }]
+    : [{ updatedAt: 'desc' }, { createdAt: 'desc' }];
   const rows = await db.escalationCase.findMany({
     where: {
       tenantId: params.tenantId,
@@ -102,27 +105,62 @@ export async function listEscalationCases(
         ? { assignedToUserId: params.assignedToUserId }
         : {}),
     },
-    orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
+    orderBy,
     take: params.limit,
     skip: params.offset,
+    include: {
+      journey: {
+        select: {
+          conversationId: true,
+          conversation: { select: { channel: true, customerRef: true } },
+        },
+      },
+    },
   });
-  return rows.map(toDomainEscalationCase);
+  if (rows.length === 0) return [];
+
+  const lastReplies = await db.outboundMessage.groupBy({
+    by: ['conversationId'],
+    where: {
+      tenantId: params.tenantId,
+      source: 'HUMAN',
+      conversationId: { in: rows.map((row) => row.journey.conversationId) },
+    },
+    _max: { createdAt: true },
+  });
+  const lastReplyByConversation = new Map(
+    lastReplies.map((entry) => [entry.conversationId, entry._max.createdAt]),
+  );
+
+  return rows.map((row) => {
+    const lastReply = lastReplyByConversation.get(row.journey.conversationId) ?? null;
+    const humanReplied = lastReply !== null && lastReply >= row.createdAt;
+    return {
+      ...toDomainEscalationCase(row),
+      conversationId: row.journey.conversationId,
+      channel: row.journey.conversation.channel,
+      customerRef: row.journey.conversation.customerRef,
+      humanReplied,
+      lastHumanReplyAt: humanReplied ? lastReply.toISOString() : null,
+    };
+  });
 }
 
-export async function assignEscalationCase(
+/**
+ * A staff member's first reply in a chat claims the case that is still unassigned, so the queue shows
+ * who is on it. A case someone already holds is never taken over by a second person's reply.
+ */
+export async function assignEscalationCaseToStaff(
   db: Executor,
   tenantId: TenantId,
-  id: string,
-  assignedToUserId: string,
-): Promise<EscalationCase | null> {
+  journeyId: string,
+  userId: string,
+): Promise<boolean> {
   const result = await db.escalationCase.updateMany({
-    where: { id, tenantId, status: EscalationStatus.OPEN },
-    data: { status: EscalationStatus.IN_PROGRESS, assignedToUserId },
+    where: { tenantId, journeyId, status: EscalationStatus.IN_PROGRESS, assignedToUserId: null },
+    data: { assignedToUserId: userId },
   });
-  if (result.count === 0) {
-    return null;
-  }
-  return findEscalationCaseById(db, tenantId, id);
+  return result.count > 0;
 }
 
 export interface ResolveEscalationCaseParams {
@@ -134,7 +172,7 @@ export interface ResolveEscalationCaseParams {
   now: Date;
 }
 
-/** Only OPEN/IN_PROGRESS cases can resolve — an already-resolved case is never silently overwritten. */
+/** Only an IN_PROGRESS case can resolve — an already-resolved case is never silently overwritten. */
 export async function resolveEscalationCase(
   db: Executor,
   params: ResolveEscalationCaseParams,
@@ -143,7 +181,7 @@ export async function resolveEscalationCase(
     where: {
       id: params.id,
       tenantId: params.tenantId,
-      status: { in: [EscalationStatus.OPEN, EscalationStatus.IN_PROGRESS] },
+      status: EscalationStatus.IN_PROGRESS,
     },
     data: {
       status: EscalationStatus.RESOLVED,
@@ -171,7 +209,7 @@ export interface CancelEscalationCaseParams {
  * raised it resolved itself (e.g. a customer who stalled on booking details
  * later supplied them). Distinct from `resolveEscalationCase`: no human
  * decided anything, so no resolver and no APPROVED/REJECTED outcome is
- * recorded. Only OPEN/IN_PROGRESS cases can be cancelled.
+ * recorded. Only an IN_PROGRESS case can be cancelled.
  */
 export async function cancelEscalationCase(
   db: Executor,
@@ -181,7 +219,7 @@ export async function cancelEscalationCase(
     where: {
       id: params.id,
       tenantId: params.tenantId,
-      status: { in: [EscalationStatus.OPEN, EscalationStatus.IN_PROGRESS] },
+      status: EscalationStatus.IN_PROGRESS,
     },
     data: {
       status: EscalationStatus.CANCELLED,
@@ -199,7 +237,7 @@ export async function findBreachedEscalationCases(
 ): Promise<EscalationCase[]> {
   const rows = await db.escalationCase.findMany({
     where: {
-      status: { in: [EscalationStatus.OPEN, EscalationStatus.IN_PROGRESS] },
+      status: EscalationStatus.IN_PROGRESS,
       slaBreached: false,
       slaDueAt: { lt: now },
     },

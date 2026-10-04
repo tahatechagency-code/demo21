@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { Permission } from '@ai-concierge/domain';
+import { formatUsdAmount, Permission } from '@ai-concierge/domain';
 import { fetchVehicles, SessionExpiredError } from '../../../lib/adminApi';
 import { getCurrentUser } from '../../../lib/getCurrentUser';
 import { hasPermission } from '../../../lib/dashboardNav';
@@ -27,8 +27,8 @@ export default async function FleetPage() {
     <div className="mx-auto max-w-4xl py-8">
       <h1 className="font-display text-lg uppercase tracking-[0.14em] text-cream-50">Fleet</h1>
       <p className="mt-2 text-sm text-cream-50/70">
-        Your cars, their colours, daily rates and photos. When a customer asks the concierge to
-        see a car, it sends these photos automatically.
+        Your cars, their colours, daily rates and photos. When a customer asks the concierge to see
+        a car, it sends these photos automatically.
       </p>
 
       {canEdit ? (
@@ -87,8 +87,8 @@ export default async function FleetPage() {
             </dl>
 
             <p className="mt-4 text-sm font-medium text-ink-900">
-              {vehicle.pricingProfile.currency} {vehicle.pricingProfile.dailyRate.toLocaleString()}{' '}
-              / day
+              {formatUsdAmount(vehicle.pricingProfile.dailyRate, vehicle.pricingProfile.currency)} /
+              day
             </p>
 
             <VehiclePhotos vehicleId={vehicle.id} photos={vehicle.photos} canEdit={canEdit} />

@@ -168,3 +168,43 @@ export class Money {
 export function sumMoney(currency: string, values: Money[]): Money {
   return values.reduce((total, value) => total.add(value), Money.zero(currency));
 }
+
+/**
+ * Every price a customer or staff member sees is in one display currency (the business currency, AED).
+ * A record stored in a currency pegged to it (US dollars: 3.6725 AED per USD since 1997) is converted
+ * for display at that fixed peg, so no screen or message ever mixes currencies. Money in any other
+ * currency is shown as stored, never guessed at.
+ */
+export const DISPLAY_CURRENCY = 'AED';
+const PEG_PER_USD: Record<string, number> = { USD: 1, AED: 3.6725 };
+
+/** Whole amounts show no decimals ("3,500"); anything else shows two ("3,500.50"). */
+function plain(amount: number): string {
+  const rounded = Math.round(amount * 100) / 100;
+  return Number.isInteger(rounded)
+    ? rounded.toLocaleString('en-US')
+    : rounded.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** The amount in the display currency, or `null` when its currency has no fixed conversion. */
+export function toDisplayAmount(amount: number, currency: string): number | null {
+  const from = PEG_PER_USD[currency.toUpperCase()];
+  const to = PEG_PER_USD[DISPLAY_CURRENCY];
+  return from === undefined || to === undefined ? null : Math.round(((amount / from) * to) * 100) / 100;
+}
+
+/** "AED 3,500" / "AED 953.03" for a major-unit amount (`dailyRate`, a deposit). */
+export function formatDisplayAmount(amount: number, currency: string = DISPLAY_CURRENCY): string {
+  const shown = toDisplayAmount(amount, currency);
+  return shown === null ? `${currency} ${plain(amount)}` : `${DISPLAY_CURRENCY} ${plain(shown)}`;
+}
+
+/** The same for an integer count of minor units (a quote total, in fils). */
+export function formatDisplayMinor(minorUnits: number, currency: string): string {
+  return formatDisplayAmount(minorUnits / 100, currency);
+}
+
+// Earlier names, kept so existing screens keep compiling; they now follow the display currency.
+export const toUsdAmount = toDisplayAmount;
+export const formatUsdAmount = formatDisplayAmount;
+export const formatUsdMinor = formatDisplayMinor;

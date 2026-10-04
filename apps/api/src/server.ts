@@ -7,6 +7,7 @@ import {
   PricingRules,
   QuoteValidator,
   RuleBasedIntentEngine,
+  DEFAULT_PRICING_RULES,
   VehicleDeterminationOrchestrator,
 } from '@ai-concierge/ai';
 import {
@@ -29,6 +30,7 @@ import { createPostEnquiryQueue } from './lib/queue.js';
 import { createRedisClient } from './lib/redis.js';
 import { createFleetProvider } from './services/createFleetProvider.js';
 import { PrismaAvailabilityProvider } from './services/availabilityProvider.js';
+import { startFollowUpSweep } from './services/followUpService.js';
 import { ReservationLockService } from './services/reservationLockService.js';
 import { PrismaVehicleCatalogProvider } from './services/vehicleCatalogProvider.js';
 
@@ -86,7 +88,7 @@ async function main(): Promise<void> {
       bufferMinutes: config.AVAILABILITY_TURNAROUND_BUFFER_MINUTES,
     }),
   });
-  const pricingRules = new PricingRules();
+  const pricingRules = new PricingRules(DEFAULT_PRICING_RULES);
   const quoteValidator = new QuoteValidator(config.WEBHOOK_SIGNING_SECRET);
 
   const { provider: aiProvider, status: aiProviderStatus } = createAIProvider(config);
@@ -135,9 +137,14 @@ async function main(): Promise<void> {
   logger.info({ aiProviderStatus }, 'AI provider status');
 
   const app = await buildApp(ctx, logger);
+  const stopFollowUpSweep =
+    config.FOLLOW_UP_SWEEP_INTERVAL_MS > 0
+      ? startFollowUpSweep(ctx, config.FOLLOW_UP_SWEEP_INTERVAL_MS)
+      : () => undefined;
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'shutting down');
+    stopFollowUpSweep();
     await app.close();
     await Promise.allSettled([
       prisma.$disconnect(),

@@ -508,7 +508,7 @@ describe('WhatsApp webhook — integration', () => {
     // The stall case is closed, not left open for staff to chase.
     expect(
       await testApp.ctx.prisma.escalationCase.count({
-        where: { status: { in: ['OPEN', 'IN_PROGRESS'] } },
+        where: { status: 'IN_PROGRESS' },
       }),
     ).toBe(0);
 
@@ -588,7 +588,9 @@ describe('WhatsApp webhook — integration', () => {
 
     const check = await latestMissingInfo(from);
     expect(check?.status).toBe(MissingInfoStatus.CANCELLED);
-    expect(await testApp.ctx.prisma.escalationCase.count({ where: { status: 'OPEN' } })).toBe(1);
+    expect(
+      await testApp.ctx.prisma.escalationCase.count({ where: { status: 'IN_PROGRESS' } }),
+    ).toBe(1);
 
     // Cancelling is a person's decision, so the same conversation carries on.
     await send(from, 'Hi again');

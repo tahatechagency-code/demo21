@@ -131,6 +131,11 @@ export function buildFleetKnowledge(rows: FleetRowInput[], currency: string): Fl
     existing.dailyRate = Math.min(existing.dailyRate, row.dailyRate);
   }
   const models = [...byKey.values()].sort((a, b) => a.name.localeCompare(b.name));
+  // Same wording every time: colours (and their rows) in alphabetical order, whatever order the database returned.
+  for (const model of models) {
+    model.rows.sort((a, b) => a.colour.localeCompare(b.colour));
+    model.colours = model.rows.map((row) => row.colour);
+  }
   return { models, currency };
 }
 

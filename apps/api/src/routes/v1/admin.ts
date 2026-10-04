@@ -151,7 +151,7 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
       preHandler: [authenticate, requirePermission(Permission.JOURNEY_READ)],
       schema: { tags: ['admin'], response: { 200: providerStatusResponseSchema } },
     },
-    async (request, reply) => {
+    async (_request, reply) => {
       reply.status(200).send({
         whatsapp: app.ctx.whatsappProviderStatus,
         email: app.ctx.emailProviderStatus,

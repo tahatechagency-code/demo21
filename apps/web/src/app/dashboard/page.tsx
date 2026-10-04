@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { fetchDashboardSummary, SessionExpiredError } from '../../lib/adminApi';
 import { getCurrentUser } from '../../lib/getCurrentUser';
 import { navItemsFor } from '../../lib/dashboardNav';
+import { formatUsdAmount, toUsdAmount } from '@ai-concierge/domain';
 import { formatMoney } from '../../lib/format';
 import { endedCount, milestoneCounts, needsPersonCount } from '../../lib/journeyMilestones';
 import { AutoRefresh } from '../../components/dashboard/AutoRefresh';
@@ -15,7 +16,7 @@ export const metadata = { title: 'Home · AI Concierge' };
 
 const SECTION_COPY: Record<string, string> = {
   '/dashboard/escalations':
-    'Cases the AI could not resolve — assign, answer and resolve them here.',
+    'Chats the AI could not understand — answer the customer, then hand the chat back to the AI.',
   '/dashboard/journeys': 'Every customer conversation and where it stands in the 19-step flow.',
   '/dashboard/quotes': 'Every quote the concierge has issued, with its total and validity.',
   '/dashboard/customers': 'CRM records, kept in sync automatically as journeys progress.',
@@ -38,8 +39,14 @@ export default async function DashboardHomePage() {
   }
 
   const { journeys, escalations, automation, quotes } = summary;
-  const [primaryValue, ...otherValues] = quotes.quotedValue;
-  const needsAttention = escalations.open + escalations.inProgress;
+  // Quoted value is one figure in the display currency (AED); a quote in any currency we cannot convert is listed beside it.
+  const convertible = quotes.quotedValue.filter((v) => toUsdAmount(1, v.currency) !== null);
+  const otherValues = quotes.quotedValue.filter((v) => toUsdAmount(1, v.currency) === null);
+  const quotedUsd = convertible.reduce(
+    (sum, v) => sum + (toUsdAmount(v.minorUnits / 100, v.currency) ?? 0),
+    0,
+  );
+  const needsAttention = escalations.inProgress;
 
   return (
     <div className="mx-auto max-w-5xl py-8">
@@ -88,13 +95,13 @@ export default async function DashboardHomePage() {
           hint={
             escalations.slaBreached > 0
               ? `${escalations.slaBreached} past their SLA`
-              : `${escalations.open} open · ${escalations.inProgress} in progress`
+              : `${escalations.inProgress} in progress with the team`
           }
           tone={escalations.slaBreached > 0 ? 'danger' : 'default'}
         />
         <StatTile
           label="Quoted value"
-          value={primaryValue ? formatMoney(primaryValue.minorUnits, primaryValue.currency) : '—'}
+          value={convertible.length > 0 ? formatUsdAmount(quotedUsd) : '—'}
           hint={
             quotes.issued === 0
               ? 'No quotes issued yet'
@@ -109,7 +116,7 @@ export default async function DashboardHomePage() {
 
       {needsAttention > 0 && (
         <Link
-          href="/dashboard/escalations?status=OPEN"
+          href="/dashboard/escalations"
           className="mt-4 block rounded-card border border-danger/40 bg-danger/10 p-4 text-sm text-danger"
         >
           {needsAttention} case{needsAttention === 1 ? '' : 's'} need a person — open the queue →

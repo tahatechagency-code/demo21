@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  escalationCaseListItemSchema,
   escalationCaseSchema,
   escalationStatusSchema,
   journeySchema,
@@ -24,7 +25,7 @@ export const listEscalationsQuerySchema = z.object({
 export type ListEscalationsQuery = z.infer<typeof listEscalationsQuerySchema>;
 
 export const listEscalationsResponseSchema = z.object({
-  items: z.array(escalationCaseSchema),
+  items: z.array(escalationCaseListItemSchema),
 });
 export type ListEscalationsResponse = z.infer<typeof listEscalationsResponseSchema>;
 
