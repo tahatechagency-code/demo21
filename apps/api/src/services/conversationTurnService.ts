@@ -23,6 +23,7 @@ import {
 } from './enquiryPipelineService.js';
 import { advanceJourneyAutomatically } from './journeyAutopilotService.js';
 import type { JourneyProgress } from './journeyProgress.js';
+import { buildWhatsAppReplyText } from '@ai-concierge/channels';
 import { generateJourneyReply, type JourneyReply } from './journeyReplyService.js';
 import { notifyOpenCaseOfCustomerMessage, syncJourneyAfterMissingInfo } from './journeyService.js';
 import { runConciergeEngine, type EngineOverride } from './concierge/engine.js';
@@ -271,10 +272,20 @@ export async function handleInboundTurn(
     };
   }
 
-  const reply = await generateJourneyReply(
-    { aiProvider: ctx.aiProvider, logger: ctx.logger },
-    { progress, missingInfo, turns },
-  );
+  // When the engine already answered the customer's question, the booking question that follows is the
+  // fixed template: a free-text rewrite would see the question again and could answer it a second time,
+  // with facts of its own.
+  const afterAnswer = Boolean(override?.continuePipeline) && progress.stage === 'STEP4_PENDING';
+  const reply = afterAnswer
+    ? {
+        text: buildWhatsAppReplyText(missingInfo),
+        source: 'DETERMINISTIC_FALLBACK' as const,
+        stage: progress.stage as string,
+      }
+    : await generateJourneyReply(
+        { aiProvider: ctx.aiProvider, logger: ctx.logger },
+        { progress, missingInfo, turns },
+      );
 
   // A short fact in front of the booking reply ("delivery to the Marina is AED 100 ...").
   let replyText = override?.continuePipeline ? `${override.text}\n\n${reply.text}` : reply.text;
