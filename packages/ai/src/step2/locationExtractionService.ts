@@ -54,65 +54,124 @@ function findUnmatchedLocationPhrases(
   return result;
 }
 
+/** Bare names of real places outside the UAE, said without "in/to/at" ("Urus kal Delhi"). */
+function findBareUnservicedCities(text: string, resolved: LocationCandidate[]): string[] {
+  const found: string[] = [];
+  const lower = text.toLowerCase();
+  for (const city of KNOWN_UNSERVICED_CITIES) {
+    const at = new RegExp(`\\b${city.replace(/ /g, '\\s+')}\\b`, 'i').exec(lower);
+    if (!at) continue;
+    const range = { start: at.index, end: at.index + at[0].length };
+    const overlapsResolved = resolved.some((candidate) =>
+      rangesOverlap(range, { start: candidate.matchIndex, end: candidate.matchIndex + candidate.raw.length }),
+    );
+    if (!overlapsResolved) found.push(text.slice(range.start, range.end));
+  }
+  return found;
+}
+
+/** Whether a known place may be used as a pickup / drop-off (e.g. the delivery rule). */
+export interface LocationPolicy {
+  assess(candidate: LocationCandidate): Promise<{ allowed: true } | { allowed: false; message: string }>;
+}
+
+/** A place that was understood but refused by the policy; the customer is told why. */
+export interface OutOfRangeMention {
+  raw: string;
+  role: 'pickup' | 'dropoff';
+  message: string;
+}
+
 export interface LocationExtractionOutcome {
   pickupLocation: LocationCandidate | null;
   dropoffLocation: LocationCandidate | null;
   ambiguities: Ambiguity[];
   /** Real, known cities mentioned outside the current service area (see gazetteer.ts). */
   unsupportedLocationMentions: string[];
+  /** The latest pickup / drop-off the policy refused (cleared when a later one is accepted). */
+  outOfRangeMentions?: OutOfRangeMention[];
 }
 
+/** Wording that says the place is where the car comes back, not where it starts. */
+const DROPOFF_CUE_RE =
+  /\b(?:drop(?:\s*-?\s*off)?|dropping|return(?:ing)?|hand\s*over|wapas|vapas|chhod\w*)\b[^.\n]{0,25}$/i;
+/** A question about a place ("do you deliver to Al Ain?") does not change where this booking starts. */
+const QUESTION_LINE_RE =
+  /\?\s*$|^\s*(?:do|does|can|could|is|are|will|what|how|which|kya|kitna|kitne)\b|\b(?:possible|milegi|milega|hogi|hoga|available)\b/i;
+
 /**
- * AI-side proposal step: finds location mentions via the injected
- * `LocationProvider` and makes a best-effort pickup/dropoff assignment by
- * reading order. It never invents a location that wasn't in the text, and
- * it flags (rather than silently drops) a location-shaped phrase it
- * couldn't resolve — `TemporalValidationService` decides what that means
- * for the overall result.
+ * AI-side proposal step: finds location mentions via the injected `LocationProvider` and assigns
+ * pickup/dropoff message by message, so a later message ("JBR kar do") replaces the place named in an
+ * earlier one instead of becoming a drop-off. It never invents a location that wasn't in the text, and
+ * it flags (rather than silently drops) a location-shaped phrase it couldn't resolve —
+ * `TemporalValidationService` decides what that means for the overall result.
  */
 export class LocationExtractionService {
-  constructor(private readonly provider: LocationProvider) {}
+  constructor(
+    private readonly provider: LocationProvider,
+    private readonly policy?: LocationPolicy,
+  ) {}
 
   async extract(sanitizedText: string): Promise<LocationExtractionOutcome> {
-    const candidates = await this.provider.resolve(sanitizedText);
-    const unmatched = findUnmatchedLocationPhrases(sanitizedText, candidates);
-    const ambiguities: Ambiguity[] = unmatched.unrecognized.map((phrase) => ({
-      field: 'pickupLocation' as const,
-      code: 'UNRECOGNIZED_LOCATION_TEXT' as const,
-      message: `"${phrase}" was not recognized as a location`,
-      raw: phrase,
-    }));
+    const lines = sanitizedText.split('\n').filter((line) => line.trim().length > 0);
+    let pickup: LocationCandidate | null = null;
+    let dropoff: LocationCandidate | null = null;
+    const ambiguities: Ambiguity[] = [];
+    const unsupported: string[] = [];
+    const pending = new Map<'pickup' | 'dropoff', OutOfRangeMention>();
 
-    if (candidates.length === 0) {
-      return {
-        pickupLocation: null,
-        dropoffLocation: null,
-        ambiguities,
-        unsupportedLocationMentions: unmatched.unsupported,
-      };
-    }
-    if (candidates.length === 1) {
-      return {
-        pickupLocation: candidates[0]!,
-        dropoffLocation: null,
-        ambiguities,
-        unsupportedLocationMentions: unmatched.unsupported,
-      };
-    }
+    for (const line of lines.length > 0 ? lines : [sanitizedText]) {
+      const candidates = await this.provider.resolve(line);
+      const unmatched = findUnmatchedLocationPhrases(line, candidates);
+      const asking = QUESTION_LINE_RE.test(line);
+      // A question about another place must not wipe the place the booking already has.
+      if (asking && (pickup || dropoff)) continue;
 
-    if (candidates.length > 2) {
-      ambiguities.push({
-        field: 'dropoffLocation',
-        code: 'MULTIPLE_CANDIDATE_LOCATIONS',
-        message: `${candidates.length} distinct locations were mentioned; using the first two in reading order as pickup and dropoff`,
-      });
+      for (const phrase of unmatched.unrecognized) {
+        ambiguities.push({
+          field: 'pickupLocation',
+          code: 'UNRECOGNIZED_LOCATION_TEXT',
+          message: `"${phrase}" was not recognized as a location`,
+          raw: phrase,
+        });
+      }
+      for (const city of [...unmatched.unsupported, ...findBareUnservicedCities(line, candidates)]) {
+        if (!unsupported.includes(city)) unsupported.push(city);
+      }
+
+      if (candidates.length > 2) {
+        ambiguities.push({
+          field: 'dropoffLocation',
+          code: 'MULTIPLE_CANDIDATE_LOCATIONS',
+          message: `${candidates.length} distinct locations were mentioned; using the first two in reading order as pickup and dropoff`,
+        });
+      }
+      let pickupTakenThisLine = false;
+      for (const candidate of candidates.slice(0, 2)) {
+        const before = line.slice(Math.max(0, candidate.matchIndex - 40), candidate.matchIndex);
+        const role: 'pickup' | 'dropoff' =
+          DROPOFF_CUE_RE.test(before) || pickupTakenThisLine ? 'dropoff' : 'pickup';
+        if (role === 'pickup') pickupTakenThisLine = true;
+
+        const verdict = this.policy ? await this.policy.assess(candidate) : { allowed: true as const };
+        if (!verdict.allowed) {
+          pending.set(role, { raw: candidate.raw, role, message: verdict.message });
+          if (role === 'pickup') pickup = null;
+          else dropoff = null;
+          continue;
+        }
+        pending.delete(role);
+        if (role === 'pickup') pickup = candidate;
+        else dropoff = candidate;
+      }
     }
 
     return {
-      pickupLocation: candidates[0]!,
-      dropoffLocation: candidates[1]!,
+      pickupLocation: pickup,
+      dropoffLocation: dropoff,
       ambiguities,
-      unsupportedLocationMentions: unmatched.unsupported,
+      unsupportedLocationMentions: unsupported,
+      outOfRangeMentions: [...pending.values()],
     };
   }
 }

@@ -71,6 +71,14 @@ import { availabilityReply, estimateText } from './estimate.js';
 import { buildFactsText } from './facts.js';
 import { makeOptions, translateReply, understand, type GeminiContext } from './gemini.js';
 import { loadKnowledge, type Knowledge } from './knowledge.js';
+import {
+  datedEstimateReply,
+  durationReply,
+  findMessageProblem,
+  formatDay,
+  problemText,
+  stateSummary,
+} from './problems.js';
 
 /**
  * The Conversation Engine — the one place that decides how every customer message is answered:
@@ -234,9 +242,33 @@ const THANKS_RE =
   /^(?:ok(?:ay)?[ ,]*)?(?:thanks?|thank you|thank u|thx|ty|shukriya|shukria|dhanyavad|syukran|شكرا|great,? thanks?)\b.{0,25}$/i;
 const BYE_RE = /^(?:bye|goodbye|good ?bye|see you|see ya|take care|khuda hafiz|allah hafiz|alvida|ma salama)\b.{0,20}$/i;
 const IDENTITY_RE =
-  /\b(?:are you (?:a )?(?:bot|robot|ai|machine|human|real|person)|am i (?:talking|speaking|chatting) (?:to|with)|who are you|who am i (?:talking|speaking)|real person|tum kaun|aap kaun)\b/i;
+  /\b(?:are you (?:a )?(?:bot|robot|ai|machine|human|real|person)|am i (?:talking|speaking|chatting) (?:to|with)|who are you|who am i (?:talking|speaking)|real person|tum kaun|aap kaun|(?:bot|robot|insaan|insan|aadmi|admi|human|machine|ai)\s+(?:ho|hai|hain)(?:\s+ya\s+\w+)?|(?:insaan|insan|aadmi|admi)\s+ho)\b/i;
 const HOW_ARE_YOU_RE = /\b(?:how are you|how(?:'s| is) it going|kaise ho|kaisa hai|kaise hain|aap kaise)\b/i;
 const WEATHER_RE = /\b(?:weather|temperature|how hot|how cold|raining|rain today|mausam)\b/i;
+const JOKE_RE = /\b(?:tell me a joke|joke|funny|mazak|chutkula|ek joke)\b/i;
+const WRONG_NUMBER_RE = /\b(?:wrong (?:number|person|chat)|galat (?:number|jagah)|sorry wrong)\b/i;
+const VOICE_RE = /\b(?:voice (?:note|message)|audio (?:note|message)|recording|voice bheja)\b/i;
+/** No letters or digits at all ("???", emoji only), or a run of neighbouring keys ("asdfghjkl"). */
+function isNoise(text: string): boolean {
+  if (!/[\p{L}\p{N}]/u.test(text)) return true;
+  const letters = text.toLowerCase().replace(/[^a-z]/g, '');
+  if (letters.length < 5 || /\s/.test(text.trim())) return false;
+  const rows = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
+  return rows.some((row) => {
+    for (let i = 0; i + 4 <= row.length; i += 1) {
+      const run = row.slice(i, i + 4);
+      if (letters.includes(run) || letters.includes([...run].reverse().join(''))) return true;
+    }
+    return false;
+  });
+}
+
+/** "return kab hai?", "when do I pick up?", "which car did I choose?": answered from the booking so far. */
+const RETURN_WHEN_RE = /\b(?:return|wapas|vapas)\b.{0,15}\b(?:kab|when|date|kis din)\b|\b(?:kab|when)\b.{0,15}\b(?:return|wapas|vapas)\b/i;
+const PICKUP_WHEN_RE = /\b(?:pick ?-?up|collect(?:ion)?|start)\b.{0,15}\b(?:kab|when|date)\b|\b(?:kab|when)\b.{0,15}\b(?:pick ?-?up|collect|start)\b/i;
+const STATE_RE =
+  /\bwhich (?:car|vehicle)\b.{0,20}\b(?:book|choose|chose|select|pick)|\bkaun ?si (?:car|gaadi|gadi)\b.{0,20}\b(?:book|li|chun)|\bwhat (?:are|were) (?:my|the) (?:dates|details)\b|\b(?:my|meri|mera) booking\b|\bwhat (?:did|have) i (?:book|choose|select)\b/i;
+const TOTAL_RE = /\b(?:total|kitna|kitne ka|how much|price|cost|kharcha|rate)\b/i;
 
 function greeting(k: Knowledge, started: boolean): string {
   return started
@@ -249,7 +281,7 @@ function greeting(k: Knowledge, started: boolean): string {
 // ---------------------------------------------------------------------------
 
 const DELIVERY_WORDS =
-  /\b(?:deliver\w*|delivery|bring (?:it|the car|a car)|send (?:the |a )?car|collect(?:ion)? from|at my (?:hotel|home|house|villa|office|apartment|flat|place|address)|to my (?:hotel|home|house|villa|office|apartment|flat|place|address)|home delivery|door ?step)\b/i;
+  /\b(?:deliver\w*|delivery|bring (?:it|the car|a car)|send (?:the |a )?car|collect(?:ion)? from|at my (?:hotel|home|house|villa|office|apartment|flat|place|address)|to my (?:hotel|home|house|villa|office|apartment|flat|place|address)|home delivery|door ?step|(?:mere|meri|mera|apne|apni)\s+(?:hotel|villa|ghar|home|house|apartment|flat|office)|hotel (?:me|mein|pe|par))\b/i;
 
 /** "Mujhe Yas Island pe car chahiye": a place plus a want. */
 const WANT_AT_PLACE =
@@ -570,6 +602,10 @@ async function understandWithRules(base: UnderstandContext): Promise<Decision> {
     return { kind: 'REPLY', stage: ConciergeStage.ANSWER, text: fleetListReply(k.fleet) };
   }
 
+  // 4b. The booking already in progress: what the customer gave, and its total.
+  const progress = await bookingProgressReply(u, original, mention, kinds);
+  if (progress) return progress;
+
   // 5. Delivery and places.
   const place = matchLocation(message, k.profile);
   const ownDates = dateReader.extract(original, { referenceDate: new Date(), timezone: TZ });
@@ -632,6 +668,19 @@ async function understandWithRules(base: UnderstandContext): Promise<Decision> {
     }
   }
 
+  // 6b. Something in this message cannot be used (a date that does not exist or has passed, a place outside
+  // the UAE or beyond the delivery rule): say what, instead of describing the car.
+  const problem = await findMessageProblem(ctx, original);
+  if (problem) {
+    const text = await problemText(problem, async () => {
+      const decision = await deliveryDecisionFor(ctx, k, input, original);
+      return decision.kind === 'TOO_FAR'
+        ? deliveryText(decision, k, input)
+        : `Sorry, that place is further than we deliver (up to ${k.profile.delivery.maxRoadKm} km from a branch). Would you like to collect the car from one of our branches instead?`;
+    });
+    return { kind: 'REPLY', stage: ConciergeStage.ANSWER, text };
+  }
+
   // 7. Cars: named, or asked about in general.
   const contextModel = modelOfRow(k, input.resolvedVehicleId ?? input.collected.vehicle?.id ?? null);
   const vehicleDecision = await vehicleReply(u, message, mention, kinds, contextModel, classification);
@@ -650,6 +699,34 @@ async function understandWithRules(base: UnderstandContext): Promise<Decision> {
       kind: 'REPLY',
       stage: ConciergeStage.ANSWER,
       text: "I can't check the weather, but I can help you pick the right car. Are you after an SUV, a sports car or something more luxurious?",
+    };
+  }
+  if (JOKE_RE.test(original) && words <= 8) {
+    return {
+      kind: 'REPLY',
+      stage: ConciergeStage.ANSWER,
+      text: "I'll leave the jokes to the professionals, but I can find you a car that is no joke. Are you after an SUV or a sports car?",
+    };
+  }
+  if (WRONG_NUMBER_RE.test(original)) {
+    return {
+      kind: 'REPLY',
+      stage: ConciergeStage.ANSWER,
+      text: `No problem at all, thank you for letting me know. If you ever need a luxury car in the UAE, ${k.profile.brand} is here.`,
+    };
+  }
+  if (VOICE_RE.test(original)) {
+    return {
+      kind: 'REPLY',
+      stage: ConciergeStage.ANSWER,
+      text: "I can't play voice notes here, sorry. Could you type it for me: the car, your dates and the pickup place? You can also share a location pin.",
+    };
+  }
+  if (isNoise(original)) {
+    return {
+      kind: 'REPLY',
+      stage: ConciergeStage.ANSWER,
+      text: "I couldn't read that one. I can help with our cars, prices, availability and delivery. What would you like to know?",
     };
   }
   const note = asNote(input, phase);
@@ -776,6 +853,13 @@ async function vehicleReply(
   const own = dateReader.extract(original, { referenceDate: new Date(), timezone: TZ });
   /** This very message carries dates (so the pipeline's dates are not an earlier, separate step). */
   const msgHasDates = Boolean(own.pickupDate || own.returnDate || own.duration);
+
+  // A rental length with no start date ("3 din ke liye"), or in hours (rentals are per day).
+  if (!(own.pickupDate && own.returnDate)) {
+    const named = mention.kind === 'MODEL' && mention.models.length === 1 ? mention.models[0]! : contextModel;
+    const lengthReply = durationReply(original, named, Boolean(dates.pickupDate || own.pickupDate));
+    if (lengthReply) return reply(lengthReply, asNote(input, phase));
+  }
 
   // The car in the booking, and dates just given: availability and an estimate, then ask for the place.
   if (
@@ -912,6 +996,71 @@ async function vehicleReply(
   return null;
 }
 
+/**
+ * Questions about the booking in progress: when does it return, which car is it, and what is the total
+ * for the dates already given. Answered from the collected booking and the pricing rules, never from
+ * the fleet list (which would ask for dates the customer already gave).
+ */
+async function bookingProgressReply(
+  u: UnderstandContext,
+  original: string,
+  mention: ReturnType<typeof resolveVehicleMention>,
+  kinds: ReturnType<typeof detectFleetQuestion>,
+): Promise<Decision | null> {
+  const { ctx, k, input, phase } = u;
+  const c = input.collected;
+  const model = modelOfRow(k, input.resolvedVehicleId ?? c.vehicle?.id ?? null);
+  const answer = (text: string): Decision => ({
+    kind: 'REPLY',
+    stage: ConciergeStage.ANSWER,
+    text,
+    ...asNote(input, phase),
+  });
+  if (phase === ConversationPhase.QUOTED) return null; // the issued quote answers its own questions
+
+  const pickupAt = c.pickupDate ? new Date(c.pickupDate) : null;
+  const returnAt = c.returnDate ? new Date(c.returnDate) : null;
+  const place = c.pickupLocation?.normalized ?? null;
+  const asksReturn = RETURN_WHEN_RE.test(original);
+  const asksPickup = PICKUP_WHEN_RE.test(original);
+  if (asksReturn || asksPickup || STATE_RE.test(original)) {
+    if (!model && !pickupAt && !returnAt && !place) return null; // nothing booked yet: the other rules answer
+    if (asksReturn) {
+      return answer(
+        returnAt
+          ? `Your return is on ${formatDay(returnAt)}${pickupAt ? ` (pickup ${formatDay(pickupAt)})` : ''}. Shall I change it?`
+          : 'I do not have a return date yet. Which day would you like to return the car?',
+      );
+    }
+    if (asksPickup) {
+      return answer(
+        pickupAt
+          ? `Your pickup is on ${formatDay(pickupAt)}${place ? ` in ${place}` : ''}. Shall I change it?`
+          : 'I do not have a pickup date yet. Which day should we start?',
+      );
+    }
+    const summary = stateSummary(model, pickupAt, returnAt, place);
+    if (summary) return answer(`So far I have: ${summary}. What would you like to change?`);
+  }
+
+  // "total kitna", "price?" once car and dates are known: the estimate for those dates.
+  const wantsTotal = kinds.includes('PRICE') || TOTAL_RE.test(original);
+  if (wantsTotal && model && pickupAt && returnAt && mention.kind === 'NONE') {
+    let deliveryNote: string | null = null;
+    if (place) {
+      const decision = await checkDelivery({ message: place, whenIso: c.pickupDate }, k.profile, mapsFor(ctx));
+      if (decision.kind === 'DELIVERY_POSSIBLE') {
+        deliveryNote = `Delivery to ${decision.destination}: ${describeFee(decision.fee, k.profile.currency)}, charged in addition.`;
+      } else if (decision.kind === 'BRANCH_PICKUP') {
+        deliveryNote = `Picking up from our ${branchLabel(decision.branch.name)} branch has no delivery fee.`;
+      }
+    }
+    const text = datedEstimateReply(ctx, k, model, pickupAt, returnAt, deliveryNote);
+    if (text) return answer(text);
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // The ladder
 // ---------------------------------------------------------------------------
@@ -957,6 +1106,38 @@ async function optionsReply(
     keepEnglish: true,
     text: formatOptions(STAGE_TWO_INTRO, options),
   };
+}
+
+/**
+ * A place the customer just gave that we can serve: the fee (or "collect from our branch") goes in front
+ * of the booking steps' own question, so the delivery rule is visible on every path — one message with
+ * the dates, a later turn, or a correction. A place beyond the rule never gets here (it is a problem).
+ */
+async function newPlaceNote(
+  ctx: AppContext,
+  k: Knowledge,
+  input: EngineInput,
+  phase: ConversationPhaseValue,
+  message: string,
+): Promise<Decision | null> {
+  if (phase === ConversationPhase.QUOTED || phase === ConversationPhase.ESCALATED) return null;
+  if (matchLocation(message, k.profile).kind === 'UNKNOWN') return null;
+  const decision = await deliveryDecisionFor(ctx, k, input, message);
+  const stated =
+    decision.kind === 'DELIVERY_POSSIBLE'
+      ? decision.destination
+      : decision.kind === 'BRANCH_PICKUP'
+        ? branchLabel(decision.branch.name)
+        : null;
+  if (!stated) return null;
+  // Said already a moment ago: do not repeat the same note.
+  const recent = input.turns.filter((turn) => turn.role === 'assistant').slice(-2);
+  if (recent.some((turn) => turn.content.includes(stated) && /deliver|collect|branch/i.test(turn.content))) return null;
+  const text =
+    decision.kind === 'DELIVERY_POSSIBLE'
+      ? `Delivery to ${decision.destination} is possible: ${describeFee(decision.fee, k.profile.currency)}, about ${decision.from.roadKm} km from our ${branchLabel(decision.from.branch.name)} branch.`
+      : `You can collect the car from our ${stated} branch, with no delivery fee.`;
+  return { kind: 'REPLY', stage: ConciergeStage.ANSWER, prefix: true, text };
 }
 
 type Ladder = 'FIRST' | 'AFTER_OPTIONS_1' | 'AFTER_OPTIONS_2';
@@ -1017,6 +1198,10 @@ async function decide(ctx: AppContext, k: Knowledge, input: EngineInput): Promis
   }
 
   const understood = await understandWithRules({ ctx, k, input, phase, message });
+  if (understood.kind === 'PIPELINE') {
+    const note = await newPlaceNote(ctx, k, input, phase, customerText);
+    if (note) return note;
+  }
   if (understood.kind !== 'UNKNOWN') return understood;
 
   // The booking steps moved on because of this very message (driver details read, a quote or the

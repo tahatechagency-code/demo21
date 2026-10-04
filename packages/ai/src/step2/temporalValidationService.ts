@@ -64,6 +64,15 @@ export class TemporalValidationService {
       });
     }
 
+    for (const mention of input.locationOutcome.outOfRangeMentions ?? []) {
+      validationErrors.push({
+        field: mention.role === 'pickup' ? 'pickupLocation' : 'dropoffLocation',
+        code: 'OUT_OF_DELIVERY_RANGE',
+        message: mention.message.slice(0, 300),
+        severity: 'ERROR',
+      });
+    }
+
     const { pickupDate, returnDate } = input.dateOutcome;
 
     if (pickupDate && isBeforeCalendarDay(pickupDate, input.referenceDate, input.timezone)) {

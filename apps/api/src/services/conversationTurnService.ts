@@ -155,6 +155,11 @@ export async function handleInboundTurn(
   );
   const conversationId = pipeline.enquiry.conversationId;
   const missingInfo = pipeline.missingInfo.missingInfo;
+  const sentBefore = await findMessagesForConversation(ctx.prisma, tenantId, conversationId);
+  const normalise = (text: string) => text.toLowerCase().replace(/\s+/g, ' ').trim();
+  const repeatedMessage = sentBefore
+    .slice(0, -1)
+    .some((row) => normalise(row.content) === normalise(input.body));
 
   let journey: Journey | null = null;
   try {
@@ -171,6 +176,7 @@ export async function handleInboundTurn(
             ? computeCollectedFingerprint(missingInfo.collected)
             : null,
         requestId: input.requestId,
+        repeatedMessage,
       },
     );
     await syncCustomerFromJourney(

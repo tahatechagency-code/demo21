@@ -4,7 +4,7 @@ import { DIAMONDLEASE_BRANCHES, EMIRATE_LABEL } from '../concierge/profile.js';
 import type { GazetteerEntry } from './gazetteer.js';
 
 /** Aliases too short or too common to be safe as a place on their own. */
-const SKIP_ALIASES = new Set(['dip', 't1', 't2', 't3', 'palm', 'marina', 'yas']);
+const SKIP_ALIASES = new Set(['dip', 't1', 't2', 't3']);
 
 const SERVICE_TIMEZONE = 'Asia/Dubai';
 

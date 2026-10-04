@@ -12,7 +12,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
   ForEach-Object { & taskkill /PID $_.ProcessId /T /F | Out-Null }
 Start-Sleep -Seconds 2
 
-& pnpm --filter '@ai-concierge/domain' --filter '@ai-concierge/ai' build
+& pnpm --filter '@ai-concierge/domain' --filter '@ai-concierge/contracts' --filter '@ai-concierge/ai' build
 if ($LASTEXITCODE -ne 0) { throw 'build failed' }
 
 $log = Join-Path $env:TEMP 'evalapi.log'
@@ -28,3 +28,4 @@ if (-not $up) { Get-Content (Join-Path $env:TEMP 'evalapi.err') -Tail 20; throw 
 $runArgs = @('evals/run.mjs', '--suite', $Suite)
 if ($Only) { $runArgs += @('--only', $Only) }
 & node @runArgs
+

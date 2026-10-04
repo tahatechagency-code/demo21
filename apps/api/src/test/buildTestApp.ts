@@ -9,6 +9,7 @@ import {
   PricingRules,
   QuoteValidator,
   RuleBasedIntentEngine,
+  resolveBusinessProfile,
   VehicleDeterminationOrchestrator,
   type FleetProvider,
 } from '@ai-concierge/ai';
@@ -130,7 +131,9 @@ export async function buildTestApp(
     redis,
     postEnquiryQueue,
     intentEngine: new RuleBasedIntentEngine(),
-    dateLocationOrchestrator: new DateLocationExtractionOrchestrator(),
+    dateLocationOrchestrator: new DateLocationExtractionOrchestrator({
+      profile: resolveBusinessProfile(config.BUSINESS_PROFILE_JSON, config.BUSINESS_NAME),
+    }),
     vehicleOrchestrator: new VehicleDeterminationOrchestrator({
       catalogProvider: new PrismaVehicleCatalogProvider(prisma),
     }),

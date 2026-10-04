@@ -15,6 +15,7 @@ export const FaqTopic = {
   LOCATION: 'LOCATION',
   MILEAGE: 'MILEAGE',
   FUEL_TOLLS_FINES: 'FUEL_TOLLS_FINES',
+  LATE_RETURN: 'LATE_RETURN',
 } as const;
 export type FaqTopicValue = (typeof FaqTopic)[keyof typeof FaqTopic];
 

@@ -1,6 +1,9 @@
 import { DEFAULT_SERVICE_TIMEZONE, type DateLocationExtractionResult } from '@ai-concierge/domain';
 import { sanitizeForProcessing } from '../sanitize.js';
+import type { MapsProvider } from '../concierge/locations.js';
+import type { BusinessProfile } from '../concierge/profile.js';
 import { DateExtractionService } from './dateExtractionService.js';
+import { DeliveryRangePolicy } from './deliveryRangePolicy.js';
 import { GazetteerLocationProvider } from './gazetteerLocationProvider.js';
 import { LocationExtractionService } from './locationExtractionService.js';
 import type { LocationProvider } from './locationProvider.js';
@@ -10,6 +13,10 @@ import { TemporalValidationService } from './temporalValidationService.js';
 export interface ExtractDatesAndLocationOptions {
   referenceDate?: Date;
   locationProvider?: LocationProvider;
+  /** The business whose delivery rule judges every pickup / drop-off (default: the built-in profile). */
+  profile?: BusinessProfile;
+  /** Optional geocoder / router that measures real road distance for the delivery rule. */
+  maps?: MapsProvider;
 }
 
 /**
@@ -28,7 +35,10 @@ export class DateLocationExtractionOrchestrator {
   constructor(options: ExtractDatesAndLocationOptions = {}) {
     const provider =
       options.locationProvider ?? new ResilientLocationProvider(new GazetteerLocationProvider());
-    this.locationExtractionService = new LocationExtractionService(provider);
+    this.locationExtractionService = new LocationExtractionService(
+      provider,
+      new DeliveryRangePolicy(options.profile, options.maps),
+    );
   }
 
   async extract(

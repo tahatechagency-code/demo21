@@ -30,7 +30,10 @@ export type PolicyTopic =
   | 'HOURS'
   | 'FUEL_TOLLS_FINES'
   | 'CHAUFFEUR'
-  | 'DISCOUNT';
+  | 'DISCOUNT'
+  | 'LATE_RETURN'
+  | 'BOOKING_PROCESS'
+  | 'PAYMENT_LINK';
 
 export interface PolicyContext {
   profile: BusinessProfile;
@@ -57,13 +60,16 @@ const patterns: [PolicyTopic, RegExp][] = [
   ['LICENCE', /\b(?:licen[cs]e|licen[cs]es|driving permit|idp|international (?:driving )?(?:permit|licen[cs]e)|home country licen[cs]e|uae licen[cs]e|gcc licen[cs]e|visit visa)\b/i],
   ['DOCUMENTS', /\b(?:documents?|papers?|paperwork|passport|emirates id|what (?:do|should) i (?:need|bring|carry)|requirements?|id (?:required|needed)|kya chahiye|kaunse documents?)\b/i],
   ['DEPOSIT', /\b(?:security )?deposit\b|\bcaution\b/i],
+  ['PAYMENT_LINK', /\b(?:payment|pay) link\b|\blink (?:bhej\w*|send|please)\b|\bsend (?:me )?(?:the |a )?(?:payment )?link\b/i],
+  ['LATE_RETURN', /\blate (?:return|fee|fees|charge|charges|drop|hand ?back)\b|\b(?:return|returning|drop) (?:me |it |the car )?late\b|\bovertime\b|\bgrace period\b|\bextra (?:hour|day)s?\b|\bdelay\w* (?:in )?return/i],
+  ['BOOKING_PROCESS', /\bhow (?:do|can|to) (?:i |we )?(?:book|reserve|confirm)\b|\b(?:booking|reservation) (?:confirm\w*|process|procedure|kaise)\b|\b(?:book|booking|confirm)\w* kaise\b|\bhow does (?:it|booking|renting) work\b|\bconfirm kaise\b/i],
   ['PAYMENT', /\b(?:payment methods?|how (?:do|can) i pay|pay(?:ing)? (?:by|with|in)|accept\w* (?:cash|card|visa|mastercard|crypto|bitcoin|cheque|apple pay)|cash|credit card|debit card|bank transfer|crypto|bitcoin|payment link|installments?|tabby|tamara)\b/i],
   ['DELIVERY_FEES', /\bhow much\b.{0,25}\b(?:delivery|deliver|collection|drop ?off)\b|\b(?:delivery|deliver|collection|collect)\b.{0,30}\b(?:fee|fees|charge|charges|cost|price|how much|free)\b|\b(?:fee|fees|charge|charges|cost)\b.{0,25}\b(?:delivery|deliver|drop|pickup|collection)\b/i],
   ['VAT', /\bvat\b|\btax(?:es)?\b|\bincluding tax\b|\binclusive\b|\bexclusive\b/i],
   ['CURRENCY', /\b(?:currency|dollars?|usd|euros?|eur|pounds?|gbp|inr|rupees?)\b/i],
   ['BRANCHES', /\b(?:branches|branch locations?|locations?|where are you|your (?:address|office|showroom)|pickup points?|which (?:areas?|places?)|do you have (?:a )?branch|offices?)\b/i],
   ['INSURANCE', /\b(?:insurance|insured|collision|cdw|covered|coverage|accident cover)\b/i],
-  ['MILEAGE', /\b(?:mileage|km limit|kilomet(?:re|er)s?|unlimited (?:km|mileage)|km per day|km allowed)\b/i],
+  ['MILEAGE', /\b(?:mileage|km limit|kilomet(?:re|er)s?|unlimited (?:km|mileage)|km per day|km allowed|km (?:free|included)|(?:kitne|how many) km|free km)\b/i],
   ['HOURS', /\b(?:opening|closing|working|business|office) (?:hours|times?)\b|\bwhat time (?:are|do) you (?:open|close)\b|\b(?:are you|you|we(?:'re| are)) open\b|\bopen (?:on|today|tomorrow|now|late|daily|every day|all day|24)\b|\b24\s?\/?\s?7\b|\btimings?\b/i],
   ['FUEL_TOLLS_FINES', /\b(?:fuel|petrol|salik|tolls?|traffic fines?|fines?|parking ticket)\b/i],
   ['CHAUFFEUR', /\b(?:chauffeur|with (?:a )?driver|driver included|driver service)\b/i],
@@ -77,6 +83,7 @@ const FAQ_TOPIC_FOR: Partial<Record<PolicyTopic, FaqTopicValue>> = {
   FUEL_TOLLS_FINES: FaqTopic.FUEL_TOLLS_FINES,
   CHAUFFEUR: FaqTopic.CHAUFFEUR,
   DISCOUNT: FaqTopic.DISCOUNT,
+  LATE_RETURN: FaqTopic.LATE_RETURN,
   PAYMENT: FaqTopic.PAYMENT_METHODS,
   CROSS_BORDER: FaqTopic.CROSS_BORDER,
   DEPOSIT: FaqTopic.DEPOSIT,
@@ -111,13 +118,16 @@ const TOPIC_LABEL: Record<PolicyTopic, string> = {
   FUEL_TOLLS_FINES: 'fuel, Salik and fines',
   CHAUFFEUR: 'chauffeur service',
   DISCOUNT: 'discounts',
+  LATE_RETURN: 'the late-return charges',
+  BOOKING_PROCESS: 'the booking steps',
+  PAYMENT_LINK: 'the payment link',
 };
 
 function unconfigured(topic: PolicyTopic): PolicyAnswer {
   return {
     kind: 'UNCONFIGURED',
     topic,
-    text: `I do not have ${TOPIC_LABEL[topic]} confirmed, and I would rather not guess. Reply TEAM and I will connect you with our team, or ask me anything else about our cars, prices or delivery.`,
+    text: `I do not have ${TOPIC_LABEL[topic]} confirmed, and I would rather not guess. Reply TEAM and I will bring in a colleague to confirm it right here in this chat, or ask me anything about our cars, prices or delivery.`,
   };
 }
 
@@ -280,8 +290,21 @@ export function answerPolicy(message: string, ctx: PolicyContext): PolicyAnswer 
           .map((branch) => `${branch.name} (${emirateLabel(branch.emirate)})`)
           .join('; ')}. We can also deliver within ${delivery.maxRoadKm} km of a branch (${describeFee({ base: delivery.feeByEmirate[Emirate.DUBAI], surcharges: [], total: delivery.feeByEmirate[Emirate.DUBAI] }, ctx.profile.currency)} in Dubai). Where would you like the car?`,
       };
+    case 'PAYMENT_LINK':
+      return {
+        kind: 'ANSWER',
+        topic,
+        text: 'Once you accept your quote, our team sends the secure payment link right here in this chat. Tell me the car, dates and pickup place and I will prepare the quote first.',
+      };
+    case 'BOOKING_PROCESS':
+      return {
+        kind: 'ANSWER',
+        topic,
+        text: 'It is simple: tell me the car, your dates and the pickup place. I check availability and prepare your quote with the total and deposit. When you accept it, our team takes you through payment and confirms the booking.',
+      };
     case 'INSURANCE':
     case 'MILEAGE':
+    case 'LATE_RETURN':
     case 'HOURS':
     case 'FUEL_TOLLS_FINES':
     case 'CHAUFFEUR':

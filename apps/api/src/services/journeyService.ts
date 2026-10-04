@@ -203,6 +203,11 @@ export interface SyncJourneyAfterMissingInfoInput {
    * `JourneyContext.missingInfoFingerprint`'s own doc comment).
    */
   collectedFingerprint: string | null;
+  /**
+   * The customer sent the very same words again. That is not another attempt to answer the booking
+   * question, so it never counts towards a "stalled" hand-over.
+   */
+  repeatedMessage?: boolean;
   requestId: string;
 }
 
@@ -267,12 +272,13 @@ export async function syncJourneyAfterMissingInfo(
       // just because they haven't finished in 3 turns. Only an *unchanged*
       // fingerprint across turns means nothing moved.
       const madeProgress = input.collectedFingerprint !== context.missingInfoFingerprint;
-      context.missingInfoAttempts = madeProgress ? 1 : context.missingInfoAttempts + 1;
+      if (!input.repeatedMessage) {
+        context.missingInfoAttempts = madeProgress ? 1 : context.missingInfoAttempts + 1;
+      }
       context.missingInfoFingerprint = input.collectedFingerprint;
-      const decision = decideMissingInfoEscalation(
-        input.missingInfoStatus,
-        context.missingInfoAttempts,
-      );
+      const decision = input.repeatedMessage
+        ? null
+        : decideMissingInfoEscalation(input.missingInfoStatus, context.missingInfoAttempts);
       if (decision) {
         const escalated = await escalate(tx, input.tenantId, journey, decision, input.requestId);
         if (escalated) return escalated;
