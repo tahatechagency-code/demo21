@@ -284,3 +284,32 @@ export async function translateReply(
     return null;
   }
 }
+
+/**
+ * Rewords a finished English reply so a returning customer does not read the same sentence twice. Gemini
+ * gets the DRAFT (every fact already decided) and may only change the wording; the caller rejects any
+ * rewrite whose numbers, names or links differ (`keepsFacts`), so the facts are never Gemini's.
+ */
+export async function humanizeReply(
+  ai: AIProvider,
+  brand: string,
+  draft: string,
+  customerMessage: string,
+  recentOpenings: string[],
+): Promise<string | null> {
+  try {
+    const result = await ai.generateStructured({
+      systemInstruction: `You polish ${brand}'s car-rental concierge messages for WhatsApp. Rewrite the DRAFT so it sounds like a warm, brisk human: short sentences, at most 3 short lines unless the draft is a list (then keep the list), the same language and tone as the customer's message. Change ONLY the wording. Keep EVERY number, price, date, car name and place name exactly as written. Do not add facts, promises, offers or links. Keep at most one question, and only if the draft has one. Do not open with "Yes" or "Sure" by habit, and do not begin like any of the RECENT OPENINGS.`,
+      prompt: `CUSTOMER MESSAGE:\n${sanitizeForProcessing(customerMessage).sanitizedText}\n\nRECENT OPENINGS (do not repeat):\n${recentOpenings.map((opening) => `- ${opening}`).join('\n') || '- (none)'}\n\nDRAFT:\n"""\n${draft}\n"""`,
+      schemaName: 'concierge-humanize-v1',
+      responseSchema: { type: 'object', properties: { reply: { type: 'string' } }, required: ['reply'] },
+      temperature: 0.7,
+      maxOutputTokens: 700,
+      timeoutMs: 3_500,
+    });
+    const parsed = localizeSchema.safeParse(result.json);
+    return parsed.success ? parsed.data.reply.trim() : null;
+  } catch {
+    return null;
+  }
+}

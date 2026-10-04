@@ -37,8 +37,14 @@ describe('DateExtractionService: Hinglish ranges, DD/MM, past dates, day correct
     expect([day(r.pickupDate), day(r.returnDate)]).toEqual(['2026-10-15', '2026-10-19']);
   });
 
-  it('a lone date that could be either order is still reported, not guessed', () => {
-    const r = extract('pickup 12/10');
+  it('a yearless "05/11 se 09/11" is day/month, the UAE way', () => {
+    const r = extract('Cullinan 05/11 se 09/11 tak chahiye');
+    expect([day(r.pickupDate), day(r.returnDate)]).toEqual(['2026-11-05', '2026-11-09']);
+    expect(r.ambiguities).toEqual([]);
+  });
+
+  it('a dated numeric date that could be either order is still reported, not guessed', () => {
+    const r = extract('pickup 12/10/26');
     expect(r.pickupDate).toBeNull();
     expect(r.ambiguities.map((a) => a.code)).toContain('AMBIGUOUS_NUMERIC_DATE');
   });
@@ -93,6 +99,14 @@ describe('DateExtractionService: Hinglish ranges, DD/MM, past dates, day correct
   it('hours are a length but never become days', () => {
     const r = extract('Urus 2 ghante ke liye, pickup 20 Oct');
     expect(r.duration).toEqual({ amount: 2, unit: 'hour' });
+    expect(r.returnDate).toBeNull();
+  });
+});
+
+describe('very short lengths', () => {
+  it('minutes are a length that never becomes days', () => {
+    const r = extract('Levante 90 minutes ke liye, pickup 20 Oct');
+    expect(r.duration).toEqual({ amount: 90, unit: 'minute' });
     expect(r.returnDate).toBeNull();
   });
 });

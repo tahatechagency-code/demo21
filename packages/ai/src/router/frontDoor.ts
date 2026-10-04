@@ -217,7 +217,7 @@ const RULES: Rule[] = [
   rule(
     'COMPLAINT_DAMAGE',
     0.94,
-    /\b(?:accident|crash\w*|damage\w*|dent|scratch\w*|broke down|breakdown|police|stolen|theft|lawyer|legal|sue|court|fraud|scam)\b/,
+    /\b(?:accident|crash\w*|damage\w*|dent|scratch\w*|broke down|breakdown|police|stolen|theft|lawyer|legal|sue|court|fraud\w*|scam\w*|cheat\w*|rip ?-?off|thie(?:f|ves)|dhoka|loot\w*)\b/,
   ),
   rule(
     'COMPLAINT_DAMAGE',

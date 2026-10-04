@@ -38,7 +38,7 @@ const TOPIC_PATTERNS: [FaqTopicValue, RegExp][] = [
     FaqTopic.DISCOUNT,
     /\b(?:discounts?|promo(?:tion)?s?|coupon|cheaper|special (?:rate|offer)|long[- ]?term|monthly|for a month|per month|weekly (?:rate|deal))\b/i,
   ],
-  [FaqTopic.CHAUFFEUR, /\b(?:chauffeur|with (?:a )?driver|driver included|wedding)\b/i],
+  [FaqTopic.CHAUFFEUR, /\b(?:chauffeur|with (?:a )?driver|driver included|wedding|(?:get|have|need|want|hire|take|provide) (?:a )?driver)\b/i],
   [
     FaqTopic.LOCATION,
     /\bwhere (?:are you|is your (?:office|shop|showroom|branch)|do you operate)\b|\byour (?:address|location|office)\b|\bwhere .{0,15}located\b/i,

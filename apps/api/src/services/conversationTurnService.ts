@@ -269,7 +269,7 @@ export async function handleInboundTurn(
       conversationId,
       reply: {
         text: override.text,
-        source: 'DETERMINISTIC_FALLBACK',
+        source: override.aiWorded ? 'AI_GENERATED' : 'DETERMINISTIC_FALLBACK',
         stage: override.stage,
       },
       progress: overriddenProgress,

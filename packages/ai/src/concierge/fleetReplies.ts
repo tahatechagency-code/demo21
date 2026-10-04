@@ -3,13 +3,13 @@ import {
   joinList,
   money,
   popularModels,
-  resolveVehicleMention,
   type FleetKnowledge,
   type FleetModel,
   type VehicleMention,
 } from './fleetKnowledge.js';
 import { branchShortNames } from './locations.js';
 import type { BusinessProfile } from './profile.js';
+import { pickVariant } from './variants.js';
 
 /**
  * Customer-facing wording for everything the fleet can answer by itself. Every figure is read
@@ -73,7 +73,7 @@ export function foundModelsReply(
   mention: Extract<VehicleMention, { kind: 'MODEL' }>,
   fleet: FleetKnowledge,
   profile: BusinessProfile,
-  options: { askNext?: boolean } = {},
+  options: { askNext?: boolean; seed?: string } = {},
 ): string {
   const askNext = options.askNext !== false;
   const { models, colour } = mention;
@@ -98,8 +98,15 @@ export function foundModelsReply(
   }
 
   if (model.availableUnits > 0) {
+    const lead = pickVariant(options.seed, [
+      `Yes, we have the ${model.name}`,
+      `Good choice, the ${model.name} is in our fleet`,
+      `The ${model.name} is with us`,
+      `We do have the ${model.name}`,
+      `Sure, the ${model.name} is available to rent`,
+    ]);
     parts.push(
-      `Yes, we have the ${model.name} (${coloursText(model)}). ${model.seats} seats, ${transmissionText(model)}, from ${perDay(model)}${
+      `${lead} (${coloursText(model)}). ${model.seats} seats, ${transmissionText(model)}, from ${perDay(model)}${
         model.deposit !== null ? `, security deposit ${money(model.deposit, model.currency)}` : ''
       }. ${unitsText(model).replace(/^./, (c) => c.toUpperCase())}.${colourNote}`,
     );
@@ -181,6 +188,20 @@ export function categoryReply(
     6,
   );
   return `Our ${mention.label} options:\n${shown.map((model) => `• ${modelLine(model)}`).join('\n')}\n\nWhich one would you like? Send me your dates and pickup place too.`;
+}
+
+/** "any 7 seater?": the cars with at least that many seats, straight from the fleet rows. */
+export function seatFilterReply(fleet: FleetKnowledge, minSeats: number, profile: BusinessProfile): string {
+  const enough = fleet.models.filter((model) => model.seats >= minSeats);
+  if (enough.length === 0) {
+    const biggest = Math.max(0, ...fleet.models.map((model) => model.seats));
+    return biggest > 0
+      ? `We do not have a car with ${minSeats} or more seats right now; the largest seats ${biggest}. Reply LIST to see every model.`
+      : 'Our fleet list is not available right now.';
+  }
+  const free = enough.filter((model) => model.availableUnits > 0);
+  const shown = popularModels({ ...fleet, models: free.length > 0 ? free : enough }, profile, 6);
+  return `Cars with ${minSeats} or more seats:\n${shown.map((model) => `• ${modelLine(model)}`).join('\n')}\n\nWhich one would you like? Send me your dates and pickup place too.`;
 }
 
 export function brandReply(
@@ -331,9 +352,4 @@ export function detectRecommendNeed(message: string): RecommendNeed {
   const under = /(?:under|below|less than|within|max(?:imum)?|upto|up to)\s*(?:aed|dhs|dirhams?)?\s*(\d{3,6})/.exec(text);
   if (under) need.maxDailyRate = Number(under[1]);
   return need;
-}
-
-export function mentionCount(message: string, fleet: FleetKnowledge): number {
-  const first = resolveVehicleMention(message, fleet);
-  return first.kind === 'MODEL' ? first.models.length : 0;
 }

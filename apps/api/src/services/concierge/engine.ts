@@ -7,13 +7,17 @@ import {
   FrontDoorIntent,
   OPTION_REPEAT,
   OPTION_TEAM,
+  pickVariant,
   STAGE_ONE_INTRO,
   STAGE_TWO_INTRO,
+  UAE_PLACES,
   TEAM_HANDOFF_TEXT,
   answerPolicies,
   answerPolicy,
   brandReply,
   detectPolicyTopic,
+  detectPolicyTopics,
+  seatFilterReply,
   categoryReply,
   checkDelivery,
   classifyFrontDoor,
@@ -27,7 +31,6 @@ import {
   extractStatedDuration,
   extremeReply,
   fleetListReply,
-  fleetSuggestionOption,
   foundModelsReply,
   formatOptions,
   isPhotoRequest,
@@ -70,7 +73,8 @@ import { escalateJourney } from '../journeyService.js';
 import { buildPhotoReply } from '../vehiclePhotoReplyService.js';
 import { availabilityReply, estimateText } from './estimate.js';
 import { buildFactsText } from './facts.js';
-import { makeOptions, translateReply, understand, type GeminiContext } from './gemini.js';
+import { humanizeReply, makeOptions, translateReply, understand, type GeminiContext } from './gemini.js';
+import { keepsFacts } from './factGuard.js';
 import { arabicReply } from './arabic.js';
 import { loadKnowledge, type Knowledge } from './knowledge.js';
 import {
@@ -118,6 +122,8 @@ export interface EngineOverride {
   stage: string;
   /** True: `text` goes in FRONT of the booking pipeline's own reply instead of replacing it. */
   continuePipeline?: boolean;
+  /** Gemini reworded (or translated) this reply; the facts in it were verified to be unchanged. */
+  aiWorded?: boolean;
 }
 
 /** Stage tags on stored replies. */
@@ -140,6 +146,8 @@ type Decision =
       prefix?: boolean;
       /** Reply is fixed wording that must not be translated (the option lists). */
       keepEnglish?: boolean;
+      /** Policy and FAQ wording: never reworded, so a precise rule can not be softened. */
+      fixed?: boolean;
     }
   | { kind: 'HANDOFF'; reason: EscalationReasonValue; tier: EscalationTierValue; detail: string; reply: string }
   | { kind: 'PIPELINE' }
@@ -236,6 +244,42 @@ async function localize(ctx: AppContext, k: Knowledge, draft: string, message: s
   return sameNumbers && noLinks && translated.length <= 1400 ? translated : draft;
 }
 
+/** Every car, place and branch name the business uses: a reworded reply must keep the ones its draft names. */
+function knownNames(k: Knowledge): string[] {
+  return [
+    ...k.fleet.models.map((model) => model.name),
+    ...UAE_PLACES.map((place) => place.name),
+    ...k.profile.branches.filter((branch) => branch.confirmed).map((branch) => branchLabel(branch.name)),
+  ];
+}
+
+/**
+ * The final wording of a reply. Customers writing in Arabic, Hindi or Hinglish get it in their language;
+ * English customers get it reworded so repeated questions never read the same. Gemini only ever changes
+ * the words: a rewrite whose numbers, names or links differ from the draft is thrown away for the draft.
+ */
+async function polish(
+  ctx: AppContext,
+  k: Knowledge,
+  input: EngineInput,
+  draft: string,
+  fixed: boolean,
+): Promise<{ text: string; ai: boolean }> {
+  if (ctx.aiProviderStatus !== 'CONFIGURED') return { text: draft, ai: false };
+  if (detectLanguage(input.message) !== 'en') {
+    const text = await localize(ctx, k, draft, input.message);
+    return { text, ai: text !== draft };
+  }
+  if (fixed || draft.length > 700) return { text: draft, ai: false };
+  const openings = input.turns
+    .filter((turn) => turn.role === 'assistant')
+    .slice(-4)
+    .map((turn) => turn.content.slice(0, 50));
+  const reworded = await humanizeReply(ctx.aiProvider, k.profile.brand, draft, input.message, openings);
+  if (!reworded || !keepsFacts(draft, reworded, knownNames(k))) return { text: draft, ai: false };
+  return { text: reworded, ai: true };
+}
+
 // ---------------------------------------------------------------------------
 // Small talk
 // ---------------------------------------------------------------------------
@@ -245,7 +289,11 @@ const THANKS_RE =
 const BYE_RE = /^(?:bye|goodbye|good ?bye|see you|see ya|take care|khuda hafiz|allah hafiz|alvida|ma salama)\b.{0,20}$/i;
 const IDENTITY_RE =
   /\b(?:are you (?:a )?(?:bot|robot|ai|machine|human|real|person)|am i (?:talking|speaking|chatting) (?:to|with)|who are you|who am i (?:talking|speaking)|real person|tum kaun|aap kaun|(?:bot|robot|insaan|insan|aadmi|admi|human|machine|ai)\s+(?:ho|hai|hain)(?:\s+ya\s+\w+)?|(?:insaan|insan|aadmi|admi)\s+ho)\b/i;
-const HOW_ARE_YOU_RE = /\b(?:how are you|how(?:'s| is) it going|kaise ho|kaisa hai|kaise hain|aap kaise)\b/i;
+const HOW_ARE_YOU_RE =
+  /\b(?:how are you|how(?:'s| is) it going|how r u|what'?s up|wh?assup|sup|kaise ho|kaisa hai|kaise hain|aap kaise|kya haal|kya chal raha)\b/i;
+/** Wording that makes "real person / human" a request to be connected, not a question about me. */
+const ASKS_FOR_PERSON_RE =
+  /\b(?:talk|speak|connect|chat|call|transfer|put me|let me|give me|want|need|get me|escalate|manager|supervisor)\b/i;
 const WEATHER_RE = /\b(?:weather|temperature|how hot|how cold|raining|rain today|mausam)\b/i;
 const VIP_RE = /\b(?:vip|v\.i\.p|very important (?:person|client|customer)|celebrity|royal family|sheikh|shaikh)\b/i;
 const CORPORATE_RE =
@@ -275,10 +323,18 @@ const STATE_RE =
   /\bwhich (?:car|vehicle)\b.{0,20}\b(?:book|choose|chose|select|pick)|\bkaun ?si (?:car|gaadi|gadi)\b.{0,20}\b(?:book|li|chun)|\bwhat (?:are|were) (?:my|the) (?:dates|details)\b|\b(?:my|meri|mera) booking\b|\bwhat (?:did|have) i (?:book|choose|select)\b/i;
 const TOTAL_RE = /\b(?:total|kitna|kitne ka|how much|price|cost|kharcha|rate)\b/i;
 
-function greeting(k: Knowledge, started: boolean): string {
+function greeting(k: Knowledge, started: boolean, seed: string): string {
   return started
-    ? 'Hello again! How can I help — a car, dates, a price or delivery?'
-    : `Welcome to ${k.profile.brand}! I'm your AI concierge. I can show you our cars and prices, check availability, arrange delivery and prepare your quote. What are you looking for?`;
+    ? pickVariant(seed, [
+        'Hello again! How can I help — a car, dates, a price or delivery?',
+        'Hi again! What can I do for you: a car, dates, a price or delivery?',
+        'Good to hear from you again. Shall we look at a car, dates, a price or delivery?',
+      ])
+    : pickVariant(seed, [
+        `Welcome to ${k.profile.brand}! I'm your AI concierge. I can show you our cars and prices, check availability, arrange delivery and prepare your quote. What are you looking for?`,
+        `Welcome to ${k.profile.brand}! I'm the AI concierge here. I can help with cars, prices, availability, delivery and your quote. What would you like to start with?`,
+        `Welcome to ${k.profile.brand}! I'm your AI concierge, happy to show you the fleet, check dates and arrange delivery. What can I help you find?`,
+      ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -286,7 +342,7 @@ function greeting(k: Knowledge, started: boolean): string {
 // ---------------------------------------------------------------------------
 
 const DELIVERY_WORDS =
-  /\b(?:deliver\w*|delivery|bring (?:it|the car|a car)|send (?:the |a )?car|collect(?:ion)? from|at my (?:hotel|home|house|villa|office|apartment|flat|place|address)|to my (?:hotel|home|house|villa|office|apartment|flat|place|address)|home delivery|door ?step|(?:mere|meri|mera|apne|apni)\s+(?:hotel|villa|ghar|home|house|apartment|flat|office)|hotel (?:me|mein|pe|par))\b/i;
+  /\b(?:deliver\w*|delivery|(?:come|coming|reach|arrive|drop|send)(?: it| the car| a car| me)? (?:to|at)|bring (?:it|the car|a car)|send (?:the |a )?car|collect(?:ion)? from|at my (?:hotel|home|house|villa|office|apartment|flat|place|address)|to my (?:hotel|home|house|villa|office|apartment|flat|place|address)|home delivery|door ?step|(?:mere|meri|mera|apne|apni)\s+(?:hotel|villa|ghar|home|house|apartment|flat|office)|hotel (?:me|mein|pe|par))\b/i;
 
 /** "Mujhe Yas Island pe car chahiye": a place plus a want. */
 const WANT_AT_PLACE =
@@ -300,6 +356,31 @@ function branchLabel(name: string): string {
   return name.split(' (')[0]!.split(',')[0]!.trim();
 }
 
+/** One seed per reply: the same conversation and turn always read the same, different ones differ. */
+function seedOf(input: EngineInput): string {
+  return `${input.conversationId}:${input.turns.length}`;
+}
+
+/** The short "we can deliver there, for this fee" note; the wording rotates, the facts do not. */
+function deliveryNoteText(
+  decision: Extract<DeliveryDecision, { kind: 'DELIVERY_POSSIBLE' }>,
+  k: Knowledge,
+  seed: string,
+): string {
+  const fee = describeFee(decision.fee, k.profile.currency);
+  const km = decision.from.roadKm;
+  const branch = branchLabel(decision.from.branch.name);
+  const place = decision.destination;
+  return pickVariant(seed, [
+    `Delivery to ${place} is possible: ${fee}, about ${km} km from our ${branch} branch.`,
+    `We can bring the car to ${place} for ${fee}; it is about ${km} km from our ${branch} branch.`,
+    `${place} is inside our delivery area (about ${km} km from ${branch}), and delivery costs ${fee}.`,
+    `Good news, we deliver to ${place}. It is ${km} km from our ${branch} branch and costs ${fee}.`,
+    `Delivery to ${place} works: ${fee}, roughly ${km} km from ${branch}.`,
+    `Yes, ${place} is covered. Delivery is ${fee}, about ${km} km from our ${branch} branch.`,
+  ]);
+}
+
 function deliveryText(decision: DeliveryDecision, k: Knowledge, input: EngineInput): string {
   const cur = k.profile.currency;
   switch (decision.kind) {
@@ -309,7 +390,11 @@ function deliveryText(decision: DeliveryDecision, k: Knowledge, input: EngineInp
       const km = `${decision.from.estimated ? 'about ' : ''}${decision.from.roadKm} km`;
       const car = input.collected.vehicle ? `${input.collected.vehicle.make} ${input.collected.vehicle.model}` : null;
       return (
-        `Yes, delivery to ${decision.destination} (${EMIRATE_LABEL[decision.emirate]}) is possible from our ${branchLabel(decision.from.branch.name)} branch, ${km} away. ` +
+        pickVariant(seedOf(input), [
+          `Yes, delivery to ${decision.destination} (${EMIRATE_LABEL[decision.emirate]}) is possible from our ${branchLabel(decision.from.branch.name)} branch, ${km} away. `,
+          `We can deliver to ${decision.destination} (${EMIRATE_LABEL[decision.emirate]}) from our ${branchLabel(decision.from.branch.name)} branch, which is ${km} away. `,
+          `${decision.destination} (${EMIRATE_LABEL[decision.emirate]}) is within our delivery area, ${km} from our ${branchLabel(decision.from.branch.name)} branch. `,
+        ]) +
         `Delivery or collection costs ${describeFee(decision.fee, cur)}. ` +
         `The car must stay inside the UAE. ${car ? `Shall I check the ${car} for your dates?` : 'Which car and which dates would you like?'}`
       );
@@ -468,6 +553,9 @@ function looksLikeBookingDetail(
   return false;
 }
 
+/** A customer talking about themselves ("I hold a UAE licence"): a detail for the booking, not a question. */
+const FIRST_PERSON_RE = /\b(?:i|i'm|im|i've|ive|my|mine|me|mera|meri|mere|maine|mujhe|hum|humne)\b/i;
+
 const QUESTION_START =
   /^\s*(?:what|which|how|where|when|why|who|whom|whose|can|could|do|does|did|is|are|am|was|will|would|should|may|might|any|kya|kitna|kitne|kaun|kaunsi|konsi|kab|kahan|kaise|kyun|क्या|कितना|ما|هل|كم|كيف|أين|متى)\b/i;
 const QUESTION_CUES =
@@ -530,6 +618,15 @@ async function understandWithRules(base: UnderstandContext): Promise<Decision> {
   const message = expandVehicleAliases(original, k.fleet);
   const classification = classifyFrontDoor(original, { phase });
   const words = wordCount(original);
+
+  // 0. "Are you a real human?" is a question about me, not a request for a person.
+  if (IDENTITY_RE.test(original) && !ASKS_FOR_PERSON_RE.test(original)) {
+    return {
+      kind: 'REPLY',
+      stage: ConciergeStage.ANSWER,
+      text: `I'm ${k.profile.brand}'s AI concierge, not a person, and our team is here too if you would rather speak to someone. How can I help: a car, dates or delivery?`,
+    };
+  }
 
   // 1. A person, asked for outright.
   if (wantsTeamByWords(original) || classification.intent === FrontDoorIntent.HUMAN_REQUEST) {
@@ -665,7 +762,7 @@ async function understandWithRules(base: UnderstandContext): Promise<Decision> {
           kind: 'REPLY',
           stage: ConciergeStage.ANSWER,
           prefix: true,
-          text: `Delivery to ${decision.destination} is possible: ${describeFee(decision.fee, k.profile.currency)}, about ${decision.from.roadKm} km from our ${branchLabel(decision.from.branch.name)} branch.`,
+          text: deliveryNoteText(decision, k, seedOf(input)),
         };
       }
       if (decision.kind === 'BRANCH_PICKUP' && inBooking) return { kind: 'PIPELINE' };
@@ -680,8 +777,10 @@ async function understandWithRules(base: UnderstandContext): Promise<Decision> {
 
   // 6. Policy and FAQ (age, licence, deposit, payment, travel, VAT ...) — only when it is a question:
   // "I hold a UAE licence and can provide my passport" is the customer's own details, not a question.
-  if (isQuestionLike(original)) {
-    if (mention.kind !== 'MODEL' || kinds.length === 0) {
+  // A bare topic phrase ("minimum driver age for the Urus") is a question too; a sentence about oneself is not.
+  const topicPhrase = !FIRST_PERSON_RE.test(original) && detectPolicyTopics(original).length > 0;
+  if (isQuestionLike(original) || topicPhrase) {
+    if (mention.kind !== 'MODEL' || kinds.length === 0 || detectPolicyTopics(original).length > 0) {
       const policy = answerPolicies(original, policyContext(k));
       // A question asked together with booking details ("Urus kal Marina, and is card accepted?"): the
       // answer goes first and the booking steps carry on with whatever is still missing.
@@ -788,7 +887,7 @@ async function understandWithRules(base: UnderstandContext): Promise<Decision> {
       ...note,
       text: note.prefix
         ? 'Hello again!'
-        : `${greeting(k, input.turns.some((turn) => turn.role === 'assistant'))}${teamNote(input) ? ` ${teamNote(input).trim()}` : ''}`,
+        : `${greeting(k, input.turns.some((turn) => turn.role === 'assistant'), seedOf(input))}${teamNote(input) ? ` ${teamNote(input).trim()}` : ''}`,
     };
   }
 
@@ -840,6 +939,7 @@ function policyDecision(answer: PolicyAnswer, inBooking: boolean): Decision {
     kind: 'REPLY',
     stage: answer.kind === 'UNCONFIGURED' ? ConciergeStage.UNCONFIGURED : ConciergeStage.ANSWER,
     text: answer.text,
+    fixed: true,
     // Answered while a booking is open: the booking's own pending question follows the answer.
     ...(inBooking && answer.kind === 'ANSWER' ? { prefix: true } : {}),
   };
@@ -860,6 +960,7 @@ function asNote(input: EngineInput, phase: ConversationPhaseValue): { prefix?: b
 function statedDays(message: string): number | null {
   const duration = extractStatedDuration(message);
   if (!duration) return null;
+  if (duration.unit === 'hour' || duration.unit === 'minute') return null; // rentals are per day
   return duration.unit === 'week' ? duration.amount * 7 : duration.unit === 'month' ? duration.amount * 30 : duration.amount;
 }
 
@@ -913,6 +1014,8 @@ async function vehicleReply(
       contextModel,
       new Date(dates.pickupDate),
       new Date(dates.returnDate),
+      undefined,
+      seedOf(input),
     );
     if (text) return reply(text);
   }
@@ -977,6 +1080,7 @@ async function vehicleReply(
           new Date(dates.pickupDate!),
           new Date(dates.returnDate!),
           mention.colour,
+          seedOf(input),
         );
         if (text) return reply(text);
       }
@@ -993,7 +1097,7 @@ async function vehicleReply(
     // Naming a car (or asking if it is there): the fleet answers with its details.
     // While the booking steps are waiting for an answer, the car's details go in front of their question.
     const note = asNote(input, phase);
-    return reply(foundModelsReply(mention, k.fleet, k.profile, { askNext: !note.prefix }), note);
+    return reply(foundModelsReply(mention, k.fleet, k.profile, { askNext: !note.prefix, seed: seedOf(input) }), note);
   }
 
   if (mention.kind === 'BRAND') {
@@ -1001,6 +1105,12 @@ async function vehicleReply(
     if (kinds.includes('PRICE')) return reply(priceListReply(mention.models));
     if (kinds.includes('SEATS')) return reply(seatsReply(mention.models));
     return reply(brandReply(mention));
+  }
+
+  // "any 7 seater?": the cars with at least that many seats.
+  const seatCount = /\b(\d{1,2})\s*[- ]?(?:seater|seats?|sitter)\b/i.exec(original);
+  if ((mention.kind === 'NONE' || mention.kind === 'CATEGORY') && seatCount && Number(seatCount[1]) >= 5) {
+    return reply(seatFilterReply(k.fleet, Number(seatCount[1]), k.profile));
   }
 
   if (mention.kind === 'CATEGORY') {
@@ -1142,7 +1252,14 @@ async function optionsReply(
       kind: 'REPLY',
       stage: ConciergeStage.OPTIONS_1,
       keepEnglish: true,
-      text: formatOptions(STAGE_ONE_INTRO, options),
+      text: formatOptions(
+        pickVariant(`${input.conversationId}:${input.turns.length}`, [
+          STAGE_ONE_INTRO,
+          'I want to be sure I help properly. Did you mean one of these?',
+          'Hmm, I am not certain I followed that. Did you mean one of these?',
+        ]),
+        options,
+      ),
     };
   }
   const base = stageTwoOptions(summary, asked);
@@ -1182,8 +1299,12 @@ async function newPlaceNote(
   if (recent.some((turn) => turn.content.includes(stated) && /deliver|collect|branch/i.test(turn.content))) return null;
   const text =
     decision.kind === 'DELIVERY_POSSIBLE'
-      ? `Delivery to ${decision.destination} is possible: ${describeFee(decision.fee, k.profile.currency)}, about ${decision.from.roadKm} km from our ${branchLabel(decision.from.branch.name)} branch.`
-      : `You can collect the car from our ${stated} branch, with no delivery fee.`;
+      ? deliveryNoteText(decision, k, seedOf(input))
+      : pickVariant(seedOf(input), [
+          `You can collect the car from our ${stated} branch, with no delivery fee.`,
+          `Our ${stated} branch is right there: collecting the car from it costs no delivery fee.`,
+          `No delivery fee if you pick the car up from our ${stated} branch.`,
+        ]);
   return { kind: 'REPLY', stage: ConciergeStage.ANSWER, prefix: true, text };
 }
 
@@ -1348,11 +1469,14 @@ export async function runConciergeEngine(
       return { ...done, text: await localize(ctx, k, done.text, input.message) };
     }
     case 'REPLY': {
-      const text = decision.keepEnglish ? decision.text : await localize(ctx, k, decision.text, input.message);
+      const worded = decision.keepEnglish
+        ? { text: decision.text, ai: false }
+        : await polish(ctx, k, input, decision.text, decision.fixed === true);
       return {
-        text,
+        text: worded.text,
         escalated: false,
         stage: decision.stage,
+        ...(worded.ai ? { aiWorded: true } : {}),
         ...(decision.attachments ? { attachments: decision.attachments } : {}),
         ...(decision.prefix ? { continuePipeline: true } : {}),
       };
@@ -1360,5 +1484,3 @@ export async function runConciergeEngine(
   }
 }
 
-// Re-exported for tests.
-export { fleetSuggestionOption };

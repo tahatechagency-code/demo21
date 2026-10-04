@@ -22,6 +22,7 @@ export * from './concierge/fleetKnowledge.js';
 export * from './concierge/fleetReplies.js';
 export * from './concierge/policyFaq.js';
 export * from './concierge/options.js';
+export * from './concierge/variants.js';
 // Step 2 — Extract Dates & Location
 export * from './step2/calendar.js';
 export * from './step2/calendarDay.js';

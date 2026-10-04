@@ -53,7 +53,7 @@ export default tseslint.config(
   {
     // Plain Node scripts (not part of any workspace package's TS build,
     // where @typescript-eslint's parser already understands Node globals).
-    files: ['scripts/**/*.mjs'],
+    files: ['scripts/**/*.mjs', 'evals/**/*.mjs'],
     languageOptions: {
       globals: {
         process: 'readonly',

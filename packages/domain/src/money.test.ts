@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { AppError } from './errors.js';
 import {
   formatUsdAmount,
-  formatUsdMinor,
   Money,
   moneySchema,
   sumMoney,

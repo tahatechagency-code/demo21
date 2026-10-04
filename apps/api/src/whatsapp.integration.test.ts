@@ -442,7 +442,7 @@ describe('WhatsApp webhook — integration', () => {
     // entities (see enquiryService.ts's hasBookingShapedEntities).
     const vehicleReply = await send(from, 'Lamborghini Urus');
     // The car's details come from the fleet, followed by the booking question that is still open.
-    expect(vehicleReply.reply).toMatch(/Yes, we have the Lamborghini Urus/);
+    expect(vehicleReply.reply).toMatch(/Lamborghini Urus.*(?:Black)/s);
     expect(vehicleReply.reply).toMatch(/pick up the car/i);
     expect(vehicleReply.reply).toMatch(/return the car/i);
     expect(vehicleReply.reply).not.toMatch(/which vehicle/i);

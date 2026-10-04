@@ -59,7 +59,7 @@ interface DateToken {
 /** A rental length the customer stated ("for 3 days", "a week", "ek mahina"). */
 export interface StatedDuration {
   amount: number;
-  unit: 'hour' | 'day' | 'week' | 'month';
+  unit: 'minute' | 'hour' | 'day' | 'week' | 'month';
 }
 
 /** A clock time the customer stated, and whether the wording ties it to the pickup or the return. */
@@ -146,7 +146,7 @@ function nextWeekday(
 /** "for 3 days", "a week", "2 weeks", "a month", "5 nights", "3 din", "ek hafte". */
 export function extractStatedDuration(text: string): StatedDuration | null {
   const re =
-    /\b(for\s+)?(\d{1,3}|a|an|one|two|three|four|five|six|seven|eight|nine|ten|ek|do|teen|char|panch)[\s-]*(hours?|hrs?|ghante|ghanta|ghanty|days?|nights?|din|raat|weeks?|hafte|hafta|months?|mahina|mahine|mahinay)\b/i;
+    /\b(for\s+)?(\d{1,3}|a|an|one|two|three|four|five|six|seven|eight|nine|ten|ek|do|teen|char|panch)[\s-]*(minutes?|mins?|hours?|hrs?|ghante|ghanta|ghanty|days?|nights?|din|raat|weeks?|hafte|hafta|months?|mahina|mahine|mahinay)\b/i;
   const match = re.exec(text);
   if (!match) return null;
   const amountRaw = match[2]!.toLowerCase();
@@ -157,7 +157,9 @@ export function extractStatedDuration(text: string): StatedDuration | null {
   if (/^(?:a|an|one|ek)$/.test(amountRaw) && !match[1] && /^(?:day|days|din|night|nights|raat)/.test(unitRaw)) {
     return null;
   }
-  const unit: StatedDuration['unit'] = /^(?:hour|hr|ghant)/.test(unitRaw)
+  const unit: StatedDuration['unit'] = /^min/.test(unitRaw)
+    ? 'minute'
+    : /^(?:hour|hr|ghant)/.test(unitRaw)
     ? 'hour'
     : /^(?:week|hafte|hafta)/.test(unitRaw)
       ? 'week'
@@ -261,7 +263,7 @@ export class DateExtractionService {
     const { duration, times } = outcome;
 
     // A length in hours is not a number of days: the reply explains that rentals are per day.
-    if (pickupDate && !returnDate && duration && duration.unit !== 'hour') {
+    if (pickupDate && !returnDate && duration && duration.unit !== 'hour' && duration.unit !== 'minute') {
       const start = localDay(pickupDate, options.timezone);
       const end =
         duration.unit === 'month'
@@ -655,7 +657,8 @@ export class DateExtractionService {
         tokens.push({ index, local: null, impossible: true, raw: match[0] });
         continue;
       }
-      if (dayMonth && monthDay && !sameResult(reading) && convention === null) {
+      // A yearless "05/11" is day/month (the UAE way); only a dated one ("10/11/26") stays ambiguous.
+      if (dayMonth && monthDay && !sameResult(reading) && convention === null && year !== null) {
         tokens.push({
           index,
           local: null,

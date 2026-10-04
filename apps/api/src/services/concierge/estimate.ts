@@ -4,6 +4,7 @@ import {
   freeAlternatives,
   joinList,
   money,
+  pickVariant,
   type FleetModel,
 } from '@ai-concierge/ai';
 import { quoteSelectionsSchema, type Vehicle } from '@ai-concierge/domain';
@@ -123,6 +124,7 @@ export async function availabilityReply(
   pickupAt: Date,
   returnAt: Date,
   colour?: string | null,
+  seed?: string,
 ): Promise<string | null> {
   const verdict = await modelAvailability(ctx, model, pickupAt, returnAt);
   if (verdict.unknown && !verdict.available) return null;
@@ -132,7 +134,12 @@ export async function availabilityReply(
     const days = computeRentalDurationDays(pickupAt, returnAt);
     const estimate = estimateText(ctx, k, model, days, colour);
     return (
-      `Good news: the ${model.name} looks available for ${range}.` +
+      pickVariant(seed, [
+        `Good news: the ${model.name} looks available for ${range}.`,
+        `Great, the ${model.name} looks available for ${range}.`,
+        `The ${model.name} looks available for ${range}, good news.`,
+        `Happy to say the ${model.name} looks available for ${range}.`,
+      ]) +
       `${estimate ? `\n\n${estimate}` : ''}\n\n` +
       'Send me your pickup place (or delivery address) and I will prepare your exact quote.'
     );

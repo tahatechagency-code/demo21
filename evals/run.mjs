@@ -174,8 +174,10 @@ async function main() {
   }
   const repeatedOpenings = [...opening.entries()].filter(([, n]) => n > 3).sort((a, b) => b[1] - a[1]);
   const fallbacks = replies.filter((r) => /could not quite understand|did you mean one of these/i.test(r)).length;
-  const non200 = allTurns.filter((t) => t.status !== 200 && !(t.failures.length === 0)).length;
   const bad = allTurns.filter((t) => t.status >= 400).length;
+  // Naturalness gate: at most 3 lines / 60 words. Replies that are lists, quotes or estimates are exempt.
+  const isList = (r) => /(^|\n)\s*(?:[•-]|\d\))\s|Total:|Estimate for/.test(r);
+  const tooLong = replies.filter((r) => !isList(r) && (r.split('\n').filter((l) => l.trim()).length > 3 || r.split(/\s+/).filter(Boolean).length > 60));
   const aiGenerated = allTurns.filter((t) => t.source === 'AI_GENERATED').length;
 
   const byCat = {};
@@ -197,6 +199,8 @@ async function main() {
     fallbackPct: Number(((fallbacks / Math.max(1, replies.length)) * 100).toFixed(1)),
     aiGeneratedPct: Number(((aiGenerated / Math.max(1, replies.length)) * 100).toFixed(1)),
     repeatedOpenings: repeatedOpenings.slice(0, 8).map(([text, n]) => ({ text, n })),
+    tooLongReplies: tooLong.length,
+    tooLongSamples: tooLong.slice(0, 5).map((r) => r.slice(0, 120)),
   };
 
   // Regression diff against the previous report of the same suite.
@@ -238,7 +242,9 @@ async function main() {
   console.log(
     `\n${suite}: ${pass}/${results.length} = ${summary.pct}% | p50 ${summary.latency.p50}ms p95 ${summary.latency.p95}ms | http>=400 turns ${bad} | generic fallback ${summary.fallbackPct}% | AI_GENERATED ${summary.aiGeneratedPct}%`,
   );
-  if (repeatedOpenings.length) console.log(`repeated openings (>3): ${repeatedOpenings.length}`);
+  console.log(
+    `gates: repeated openings (>3x) ${repeatedOpenings.length} | replies over 3 lines/60 words (lists exempt) ${tooLong.length}`,
+  );
   if (regressions.length) console.log(`REGRESSIONS: ${regressions.join(', ')}`);
   if (fixed.length) console.log(`newly passing: ${fixed.join(', ')}`);
   process.exit(pass === results.length ? 0 : 1);

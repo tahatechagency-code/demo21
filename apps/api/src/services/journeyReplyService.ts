@@ -1,4 +1,4 @@
-import { sanitizeForProcessing, type AIProvider } from '@ai-concierge/ai';
+import { pickVariant, sanitizeForProcessing, type AIProvider } from '@ai-concierge/ai';
 import {
   EligibilityIntakeField,
   formatUsdMinor,
@@ -150,6 +150,7 @@ const INTAKE_PROMPTS: Record<EligibilityIntakeFieldValue, string> = {
 function draftNeedsEligibilityInfo(
   progress: Extract<JourneyProgress, { stage: 'NEEDS_ELIGIBILITY_INFO' }>,
   collected: CollectedBookingInfo,
+  seed: string,
 ): Draft {
   const lines = progress.missing.map((field) =>
     field === EligibilityIntakeField.DATE_OF_BIRTH && progress.dateOfBirthAmbiguous
@@ -160,7 +161,13 @@ function draftNeedsEligibilityInfo(
     ? `Thank you, I have the details for the ${vehicleName(collected)}${
         tripSummary(collected) ? ` (${tripSummary(collected)})` : ''
       }. Before I check availability and prepare your quote, I need a few driver details:`
-    : 'Thank you! To continue, I still need:';
+    : pickVariant(seed, [
+        'Thank you! To continue, I still need:',
+        'Almost there. I still need:',
+        'Just a little more, please. I still need:',
+        'Thanks, one more step. I still need:',
+        'To move forward I still need:',
+      ]);
   const closing = progress.firstAsk
     ? 'These are only used to pre-check your eligibility for this vehicle; our team verifies your documents before handover.'
     : '';
@@ -297,7 +304,7 @@ function draftFor(input: JourneyReplyInput): Draft | null {
     case 'STEP4_PENDING':
       return null;
     case 'NEEDS_ELIGIBILITY_INFO':
-      return draftNeedsEligibilityInfo(progress, collected);
+      return draftNeedsEligibilityInfo(progress, collected, `${input.turns.length}:${progress.missing.join(',')}`);
     case 'ELIGIBILITY_DECLINED':
       return {
         text: `Thank you for the details. Unfortunately I am not able to go ahead with this rental: ${progress.reason.replace(/[.\s]+$/, '')}. If you would like to explore other options, or think this is a mistake, just say so and I will connect you with a member of our team.`,

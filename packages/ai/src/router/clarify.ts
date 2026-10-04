@@ -217,10 +217,6 @@ export const CONTACT_TEAM_QUERY = 'I want to speak with someone from your team';
 export const CLARIFY_STAGE_FIRST = 'CLARIFY_1';
 export const CLARIFY_STAGE_SECOND = 'CLARIFY_2';
 
-export function isClarifyStage(stage: string | null | undefined): boolean {
-  return stage === CLARIFY_STAGE_FIRST || stage === CLARIFY_STAGE_SECOND;
-}
-
 const MAX_OPTION_CHARS = 90;
 
 /**

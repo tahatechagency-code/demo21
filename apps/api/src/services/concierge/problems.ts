@@ -95,8 +95,9 @@ export function durationReply(
   const duration = extractStatedDuration(message);
   if (!duration) return null;
   const car = model ? ` with the ${model.name}` : '';
-  if (duration.unit === 'hour') {
-    return `Our rentals are charged per day (24 hours), so ${duration.amount} hour${duration.amount === 1 ? '' : 's'} would be billed as 1 day${car}. ${hasPickupDate ? 'Shall I go ahead with 1 day?' : 'Is 1 day fine? And which date should we start?'}`;
+  if (duration.unit === 'hour' || duration.unit === 'minute') {
+    const length = `${duration.amount} ${duration.unit}${duration.amount === 1 ? '' : 's'}`;
+    return `Our rentals are charged per day (24 hours), so ${length} would be billed as 1 day${car}. ${hasPickupDate ? 'Shall I go ahead with 1 day?' : 'Is 1 day fine? And which date should we start?'}`;
   }
   if (hasPickupDate) return null;
   const days = duration.unit === 'week' ? duration.amount * 7 : duration.unit === 'month' ? duration.amount * 30 : duration.amount;

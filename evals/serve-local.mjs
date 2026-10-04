@@ -24,7 +24,9 @@ const env = {
   CHAT_GLOBAL_LIMIT_PER_MIN: '100000',
   FOLLOW_UP_SWEEP_INTERVAL_MS: '0',
 };
-delete env.GEMINI_API_KEY;
+// Gemini is off unless the run asks for it (EVAL_WITH_GEMINI=1 with GEMINI_API_KEY set), so the deterministic
+// engine is what is measured by default. Maps is never used by the evals.
+if (process.env.EVAL_WITH_GEMINI !== '1') delete env.GEMINI_API_KEY;
 delete env.GOOGLE_MAPS_API_KEY;
 
 function run(args, label) {

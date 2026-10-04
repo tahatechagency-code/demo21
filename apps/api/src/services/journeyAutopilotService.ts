@@ -119,7 +119,13 @@ const QUOTE_ACCEPTANCE_PATTERN = new RegExp(
 /** Acceptance is a short reply ("yes, book it"); a long message asking a question is not one. */
 const MAX_WORDS_FOR_ACCEPTANCE = 14;
 
+/** "Are you a real human?" asks what I am; it does not ask to be connected to a person. */
+const ABOUT_THE_ASSISTANT_PATTERN =
+  /\b(?:are you|r u|is this|am i (?:talking|speaking|chatting)(?: to| with)?)\b[^.?!]{0,25}\b(?:human|person|real|bot|robot|ai|machine)\b/i;
+const ASKS_TO_BE_CONNECTED_PATTERN = /\b(?:talk|speak|connect|transfer|put me|let me|want|need|get me|escalate)\b/i;
+
 export function wantsHuman(text: string): boolean {
+  if (ABOUT_THE_ASSISTANT_PATTERN.test(text) && !ASKS_TO_BE_CONNECTED_PATTERN.test(text)) return false;
   return HUMAN_REQUEST_PATTERN.test(text);
 }
 

@@ -117,7 +117,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'dropoff location accepted': { say: ['I need a car 15 Nov to 17 Nov pickup Dubai Marina drop-off Sharjah airport'], match: [/which vehicle/i] },
 
   // ---- Step 3: determine the vehicle (fleet first) ---------------------------------------
-  'cullinan found': { say: ['Do you have Cullinan?'], match: [/Yes, we have the Rolls-Royce Cullinan/, /Black and White/, /AED 6,500/], vehicle: 'Rolls-Royce Cullinan' },
+  'cullinan found': { say: ['Do you have Cullinan?'], match: [/Rolls-Royce Cullinan/, /Black and White/, /AED 6,500/], vehicle: 'Rolls-Royce Cullinan' },
   'g63 found': { say: ['G63'], match: [/Mercedes-Benz G63 AMG/], vehicle: 'Mercedes-Benz G63 AMG' },
   'g wagon found': { say: ['do you have a g wagon'], match: [/G63 AMG/] },
   'range rover black': { say: ['Range Rover black?'], match: [/Range Rover/, /Black/] },
@@ -281,7 +281,7 @@ describe('concierge engine — end to end (rules and databases only, no Gemini)'
 
   const text = (body: { reply: { text: string } }) => body.reply.text;
 
-  describe.each(Object.entries(SCENARIOS))('%s', (name, scenario) => {
+  describe.each(Object.entries(SCENARIOS))('%s', (_name, scenario) => {
     it('replies as specified', { timeout: 120_000 }, async () => {
       const sessionId = randomUUID();
       let last: { status: number; body: any; raw: string } = { status: 0, body: null, raw: '' };

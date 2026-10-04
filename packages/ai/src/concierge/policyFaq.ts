@@ -56,12 +56,12 @@ export type PolicyAnswer =
 const patterns: [PolicyTopic, RegExp][] = [
   ['CROSS_BORDER', /\b(?:oman|saudi|ksa|bahrain|qatar|kuwait|cross[- ]?border|outside (?:the )?uae|other countr(?:y|ies)|gcc trip|abroad|leave (?:the )?uae|take (?:it|the car) (?:to|out))\b/i],
   ['OFF_ROAD', /\b(?:off[- ]?road|desert|dune|dunes|sand|safari|mountain|rough road)\b/i],
-  ['MIN_AGE', /\b(?:min(?:imum)?|lowest|youngest) age\b|\bage (?:limit|requirement|restriction)s?\b|\bhow old\b|\bold enough\b|\b(?:i am|i'?m|im)\s*\d{2}\b.{0,40}\b(?:rent|drive|book|allowed|eligible|can i)\b|\bam i (?:allowed|eligible)\b|\bunder ?age\b|\b(?:umar|age kya)\b/i],
-  ['LICENCE', /\b(?:licen[cs]e|licen[cs]es|driving permit|idp|international (?:driving )?(?:permit|licen[cs]e)|home country licen[cs]e|uae licen[cs]e|gcc licen[cs]e|visit visa)\b/i],
+  ['MIN_AGE', /\b(?:min(?:imum)?|lowest|youngest)(?: (?:driver|driving|rental|renter))? age\b|\bage (?:limit|requirement|restriction)s?\b|\bhow old\b|\bold enough\b|\b(?:i am|i'?m|im)\s*\d{2}\b.{0,40}\b(?:rent|drive|book|allowed|eligible|can i)\b|\bam i (?:allowed|eligible)\b|\bunder ?age\b|\b(?:umar|age kya)\b/i],
+  ['LICENCE', /\b(?:tourists?|visitors?)\b.{0,40}\b(?:drive|driving|rent|need|require)\b|\b(?:licen[cs]e|licen[cs]es|driving permit|idp|international (?:driving )?(?:permit|licen[cs]e)|home country licen[cs]e|uae licen[cs]e|gcc licen[cs]e|visit visa)\b/i],
   ['DOCUMENTS', /\b(?:documents?|papers?|paperwork|passport|emirates id|what (?:do|should) i (?:need|bring|carry)|requirements?|id (?:required|needed)|kya chahiye|kaunse documents?)\b/i],
   ['DEPOSIT', /\b(?:security )?deposit\b|\bcaution\b/i],
   ['PAYMENT_LINK', /\b(?:payment|pay) link\b|\blink (?:bhej\w*|send|please)\b|\bsend (?:me )?(?:the |a )?(?:payment )?link\b/i],
-  ['LATE_RETURN', /\blate (?:return|fee|fees|charge|charges|drop|hand ?back)\b|\b(?:return|returning|drop) (?:me |it |the car )?late\b|\bovertime\b|\bgrace period\b|\bextra (?:hour|day)s?\b|\bdelay\w* (?:in )?return/i],
+  ['LATE_RETURN', /\bder se\b.{0,20}\b(?:wapas|vapas|return|dena|karun|karu|karoon)\b|\b(?:wapas|vapas)\b.{0,12}\bder\b|\blate (?:return|fee|fees|charge|charges|drop|hand ?back)\b|\b(?:return|returning|drop) (?:me |it |the car )?late\b|\bovertime\b|\bgrace period\b|\bextra (?:hour|day)s?\b|\bdelay\w* (?:in )?return/i],
   ['BOOKING_PROCESS', /\bhow (?:do|can|to) (?:i |we )?(?:book|reserve|confirm)\b|\b(?:booking|reservation) (?:confirm\w*|process|procedure|kaise)\b|\b(?:book|booking|confirm)\w* kaise\b|\bhow does (?:it|booking|renting) work\b|\bconfirm kaise\b/i],
   ['PAYMENT', /\b(?:payment methods?|how (?:do|can) i pay|pay(?:ing)? (?:by|with|in)|accept\w* (?:cash|card|visa|mastercard|crypto|bitcoin|cheque|apple pay)|cash|credit card|debit card|bank transfer|crypto|bitcoin|payment link|installments?|tabby|tamara|payments?|(?:card|cash) (?:se|pe|par|chalega|accept))\b/i],
   ['DELIVERY_FEES', /\bhow much\b.{0,25}\b(?:delivery|deliver|collection|drop ?off)\b|\b(?:delivery|deliver|collection|collect)\b.{0,30}\b(?:fee|fees|charge|charges|cost|price|how much|free)\b|\b(?:fee|fees|charge|charges|cost)\b.{0,25}\b(?:delivery|deliver|drop|pickup|collection)\b/i],
@@ -72,7 +72,7 @@ const patterns: [PolicyTopic, RegExp][] = [
   ['MILEAGE', /\b(?:mileage|km limit|kilomet(?:re|er)s?|unlimited (?:km|mileage)|km per day|km allowed|km (?:free|included)|(?:kitne|how many) km|free km)\b/i],
   ['HOURS', /\b(?:opening|closing|working|business|office) (?:hours|times?)\b|\bwhat time (?:are|do) you (?:open|close)\b|\b(?:are you|you|we(?:'re| are)) open\b|\bopen (?:on|today|tomorrow|now|late|daily|every day|all day|24)\b|\b24\s?\/?\s?7\b|\btimings?\b/i],
   ['FUEL_TOLLS_FINES', /\b(?:fuel|petrol|salik|tolls?|traffic fines?|fines?|parking ticket)\b/i],
-  ['CHAUFFEUR', /\b(?:chauffeur|with (?:a )?driver|driver included|driver service)\b/i],
+  ['CHAUFFEUR', /\b(?:chauffeur|with (?:a )?driver|driver included|driver service|(?:get|have|need|want|hire|take|provide) (?:a )?(?:driver|chauffeur)|driver (?:with|included|milega|chahiye|available))\b/i],
   ['DISCOUNT', /\b(?:discounts?|promo(?:tion)?s?|coupon|offers?|long[- ]?term|monthly rent|for a month|per month|weekly (?:rate|deal)|negotiat\w*)\b/i],
 ];
 
