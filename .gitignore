@@ -37,3 +37,4 @@ Thumbs.db
 
 # turbo
 .turbo/
+evals/out/
