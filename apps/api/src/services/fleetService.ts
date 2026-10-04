@@ -21,7 +21,7 @@ import {
   type UpdateVehicleBody,
   type VehiclePhoto,
 } from '@ai-concierge/contracts';
-import { AppError, type TenantId, type Vehicle } from '@ai-concierge/domain';
+import { AppError, pricingProfileInUsd, type TenantId, type Vehicle } from '@ai-concierge/domain';
 import { sniffImageType, storageKeyFor, type MediaStorage } from '../lib/mediaStorage.js';
 
 export interface FleetServiceDeps {
@@ -133,7 +133,7 @@ export async function createFleetVehicle(
       luggage: body.luggage,
       transmission: body.transmission,
       pricingProfile: {
-        currency: 'AED',
+        currency: 'USD',
         dailyRate: body.dailyRate,
         ...(body.depositAmount !== undefined ? { depositAmount: body.depositAmount } : {}),
       },
@@ -165,7 +165,7 @@ export async function updateFleetVehicle(
   const pricingProfile =
     dailyRate !== undefined || depositAmount !== undefined
       ? {
-          ...existing.pricingProfile,
+          ...pricingProfileInUsd(existing.pricingProfile),
           ...(dailyRate !== undefined ? { dailyRate } : {}),
           ...(depositAmount !== undefined ? { depositAmount } : {}),
         }

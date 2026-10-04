@@ -35,6 +35,17 @@ describe('buildAccumulatedTranscript', () => {
     expect(transcript).not.toBe(`${'a'.repeat(5000)}\n${'b'.repeat(5000)}`);
   });
 
+  it('leaves a guess out, so "I think Range Rover" can never be read back as the selected car', () => {
+    const transcript = buildAccumulatedTranscript([
+      { content: 'I think Range Rover' },
+      { content: 'Pickup in Dubai Marina. Maybe the Urus' },
+      { content: '15 to 19 Oct' },
+    ]);
+    expect(transcript).not.toMatch(/range rover|urus/i);
+    expect(transcript).toContain('Pickup in Dubai Marina.');
+    expect(transcript).toContain('15 to 19 Oct');
+  });
+
   it('collapses a newline the customer typed inside one message, so "\\n" in the result only ever means a message boundary (regression)', () => {
     const transcript = buildAccumulatedTranscript([
       { content: 'I want a Lamborghini Urus\nfor an SUV trip please' },

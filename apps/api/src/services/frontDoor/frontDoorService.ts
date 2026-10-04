@@ -1,10 +1,13 @@
 import {
   classifyFrontDoor,
   detectFaqTopic,
+  detectHedgedSelections,
   ConversationPhase,
   FrontDoorIntent,
   LOCATION_KEYWORDS,
   matchNamedVehicles,
+  originalOfRepeatOption,
+  PRICE_EXTREMES_RE,
   RequiredAction,
   type ConversationPhaseValue,
   type FrontDoorClassification,
@@ -15,6 +18,8 @@ import { listVehicles } from '@ai-concierge/db';
 import {
   EscalationReason,
   EscalationTier,
+  formatUsdAmount,
+  pricingProfileInUsd,
   type CollectedBookingInfo,
   type EscalationReasonValue,
   type EscalationTierValue,
@@ -25,8 +30,22 @@ import type { RecentTurn } from '../conversationalReplyService.js';
 import type { JourneyProgress } from '../journeyProgress.js';
 import { escalateJourney } from '../journeyService.js';
 import { buildPhotoReply } from '../vehiclePhotoReplyService.js';
+import {
+  budgetHintFor,
+  buildClarifyReply,
+  buildRepeatInDetailReply,
+  buildHedgeReply,
+  TEAM_AFTER_OPTIONS_TEXT,
+  type ClarifyRound,
+} from './clarification.js';
 import { buildFactsPack } from './factsPack.js';
 import { runConciergeTurn } from './geminiTurn.js';
+import {
+  describePriceSearch,
+  hourlyFromDaily,
+  priceSearchReply,
+  searchFleetByPrice,
+} from './priceSearch.js';
 
 /**
  * The concierge front door — the one place that decides how a customer
@@ -48,6 +67,12 @@ export interface FrontDoorInput {
   collected: CollectedBookingInfo;
   resolvedVehicleId: string | null;
   turns: RecentTurn[];
+  /** How many rounds of options this customer has already been shown without resolving them. */
+  clarifyRound: ClarifyRound;
+  /** The numbered options of the last round, so a second round never repeats them. */
+  previousOptions: readonly string[];
+  /** The customer picked one of those options: whatever it names is handled, never questioned again. */
+  selectedOption: boolean;
 }
 
 export interface FrontDoorOverride {
@@ -55,6 +80,8 @@ export interface FrontDoorOverride {
   escalated: boolean;
   /** Car photos staff uploaded, when the customer asked to see a car. */
   attachments?: OutboundAttachment[];
+  /** Stored with the reply; set when it offers numbered options, so the customer's pick can be read back. */
+  stage?: string;
 }
 
 const MAX_CARS_LISTED = 6;
@@ -162,23 +189,97 @@ async function priceReply(
     return `Happy to help with pricing — which car do you have in mind? We offer the ${joinNames(listed)}.`;
   }
 
-  const rateById = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle.pricingProfile]));
-  const byName = new Map<string, { rates: number[]; colours: string[]; currency: string }>();
+  const rateById = new Map(
+    vehicles.map((vehicle) => [vehicle.id, pricingProfileInUsd(vehicle.pricingProfile)]),
+  );
+  const byName = new Map<string, { rates: number[]; colours: string[] }>();
   for (const entry of matched) {
     const profile = rateById.get(entry.id);
     if (!profile) continue;
-    const group = byName.get(entry.name) ?? { rates: [], colours: [], currency: profile.currency };
+    const group = byName.get(entry.name) ?? { rates: [], colours: [] };
     group.rates.push(profile.dailyRate);
     group.colours.push(entry.color);
     byName.set(entry.name, group);
   }
   const lines = [...byName.entries()].slice(0, 3).map(([name, group]) => {
-    const rate = Math.min(...group.rates).toLocaleString('en-US');
-    return `the ${name} starts from ${group.currency} ${rate} per day (${joinNames(group.colours)})`;
+    const daily = Math.min(...group.rates);
+    return `the ${name} starts from ${formatUsdAmount(daily)} per day, about ${formatUsdAmount(hourlyFromDaily(daily))} per hour (${joinNames(group.colours)})`;
   });
   if (lines.length === 0) return null;
   const sentence = lines.join(', and ');
   return `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}. The final price depends on your dates and pickup, so share those and I'll prepare an exact quote.`;
+}
+
+/**
+ * "A car under 300 dollars" / "your cheapest and most expensive car". The fleet database is searched
+ * first; Gemini words the answer from that result; the wording is kept only when it states the lowest
+ * and the highest price found (per day and per hour), otherwise the database answer is sent as it is.
+ */
+async function priceSearchAnswer(
+  ctx: AppContext,
+  input: FrontDoorInput,
+  entities: FrontDoorEntities,
+): Promise<FrontDoorOverride> {
+  const vehicles = await listVehicles(ctx.prisma, {
+    tenantId: ctx.config.DEFAULT_TENANT_ID,
+    limit: 100,
+    offset: 0,
+  });
+  const range = { min: entities.budgetMin ?? null, max: entities.budgetMax ?? null };
+  const result = searchFleetByPrice(vehicles, range);
+  const fromDatabase: FrontDoorOverride = { text: priceSearchReply(result), escalated: false };
+
+  const pool = range.min !== null || range.max !== null ? result.matches : result.all;
+  const lowest = pool[0];
+  const highest = pool[pool.length - 1];
+  if (!lowest || !highest) return fromDatabase;
+  try {
+    const facts = await buildFactsPack(ctx, input.collected, {
+      priceSearch: describePriceSearch(result),
+    });
+    const turn = await runConciergeTurn(ctx.aiProvider, {
+      message: input.message,
+      recentTurns: input.turns,
+      facts,
+      allowContinueBooking: false,
+      note: 'The customer asked about prices. Answer only from PRICE SEARCH RESULT: name the cars found, and state the lowest and the highest price per day and per hour in dollars.',
+    });
+    const statesBothEnds =
+      turn.kind === 'ANSWER' &&
+      [lowest, highest].every(
+        (model) =>
+          turn.reply.includes(formatUsdAmount(model.daily)) &&
+          turn.reply.includes(formatUsdAmount(model.hourly)),
+      );
+    if (turn.kind === 'ANSWER' && statesBothEnds) return { text: turn.reply, escalated: false };
+  } catch (error) {
+    ctx.logger.error(
+      { err: error },
+      'front door price search wording failed, using the database answer',
+    );
+  }
+  return fromDatabase;
+}
+
+/** "I think Range Rover" is a guess: nothing is selected, and the customer is asked to choose. */
+async function hedgedSelectionReply(
+  ctx: AppContext,
+  input: FrontDoorInput,
+): Promise<FrontDoorOverride | null> {
+  const vehicles = (
+    await listVehicles(ctx.prisma, {
+      tenantId: ctx.config.DEFAULT_TENANT_ID,
+      limit: 100,
+      offset: 0,
+    })
+  ).filter((vehicle) => vehicle.active);
+  const kinds = detectHedgedSelections(input.message, vehicles);
+  const carNames = [
+    ...new Set(vehicles.map((vehicle) => `${vehicle.make} ${vehicle.model}`)),
+  ].sort();
+  const reply = buildHedgeReply({ kinds, collected: input.collected, carNames });
+  if (!reply) return null;
+  return { text: reply.text, escalated: false, ...(reply.stage ? { stage: reply.stage } : {}) };
 }
 
 function describeChange(entities: FrontDoorEntities): string {
@@ -298,6 +399,15 @@ function deliveryLine(): string {
   return `On pickup and delivery: we cover ${places}. Tell me where and when and I'll check it for you.`;
 }
 
+/** A budget ("under 300 dollars") or a question about the ends of the price range ("your cheapest car"). */
+function isPriceSearch(message: string, entities: FrontDoorEntities): boolean {
+  return (
+    entities.budgetMax !== undefined ||
+    entities.budgetMin !== undefined ||
+    PRICE_EXTREMES_RE.test(message)
+  );
+}
+
 /**
  * A person owns the conversation, but a plain factual question (a car's price, the fleet, photos) is
  * still answered from the database so the customer is not left waiting. Nothing here touches the case.
@@ -306,8 +416,14 @@ async function answerWhilePersonOwns(
   ctx: AppContext,
   input: FrontDoorInput,
 ): Promise<FrontDoorOverride | null> {
-  const { intent } = classifyFrontDoor(input.message, { phase: ConversationPhase.ESCALATED });
+  const { intent, entities } = classifyFrontDoor(input.message, {
+    phase: ConversationPhase.ESCALATED,
+  });
   const note = ' Our team is still looking after your request and will follow up here.';
+  if (intent === FrontDoorIntent.PRICING && isPriceSearch(input.message, entities)) {
+    const answer = await priceSearchAnswer(ctx, input, entities);
+    return { ...answer, text: `${answer.text}${note}` };
+  }
   if (intent === FrontDoorIntent.PRICING) {
     const price = await priceReply(ctx, input, { askWhichCar: false });
     return price ? { text: `${price}${note}`, escalated: false } : null;
@@ -387,27 +503,79 @@ async function runGeminiLayer(
   if (turn.kind === 'ANSWER') return { text: turn.reply, escalated: false };
   if (turn.kind === 'CONTINUE_BOOKING') return null;
 
-  // With no Gemini key at all, the booking flow's deterministic template is the honest reply to a
-  // recognised message. A failed call is not: its free-text rewrite could invent an answer, so a person takes over.
-  if (
-    turn.kind === 'HUMAN' &&
-    turn.failure === 'NOT_CONFIGURED' &&
-    classification.requiredAction !== RequiredAction.ASK_GEMINI
-  ) {
-    return null;
+  if (turn.kind === 'UNCLEAR') {
+    // The rules already recognised this message and Gemini just failed to answer it. With no Gemini
+    // key the booking flow's deterministic template is the honest reply; a failed call is not (its
+    // free-text rewrite could invent an answer), so a person takes over.
+    if (turn.failure && classification.requiredAction !== RequiredAction.ASK_GEMINI) {
+      if (turn.failure === 'NOT_CONFIGURED') return null;
+      return handOverUncertain(ctx, input, classification, turn.note);
+    }
+    return offerOptions(ctx, input, turn.suggestions);
   }
 
   // Gemini named a risky intent: the fixed, reviewed hand-over wording applies, not its own words.
   if (handOffFor(turn.intent, {}) !== null) {
     return routeHighRisk(ctx, input, { ...classification, intent: turn.intent }, 'gemini');
   }
+  return handOverUncertain(ctx, input, classification, turn.note, turn.reply);
+}
+
+/** A person takes the conversation: Gemini asked for one, or a recognised message could not be answered. */
+async function handOverUncertain(
+  ctx: AppContext,
+  input: FrontDoorInput,
+  classification: FrontDoorClassification,
+  note: string,
+  reply: string | null = null,
+): Promise<FrontDoorOverride | null> {
   const handedOver = await escalate(
     ctx,
     input,
     { reason: EscalationReason.AI_UNABLE_TO_PROCEED, tier: EscalationTier.T2 },
-    `Front door: AI_UNCERTAIN. Rules read ${classification.intent} (${classification.confidence}). ${turn.note}`,
+    `Front door: AI_UNCERTAIN. Rules read ${classification.intent} (${classification.confidence}). ${note}`,
   );
-  return handedOver ? { text: turn.reply ?? GENERIC_HANDOFF_TEXT, escalated: true } : null;
+  return handedOver ? { text: reply ?? GENERIC_HANDOFF_TEXT, escalated: true } : null;
+}
+
+/**
+ * Nobody understood the message. Round 1: two probable meanings, one question the fleet database
+ * answers, and "Contact my team". Round 2: three new probable meanings and "Contact my team". After
+ * that a person takes over, in this same chat. A message that is itself one of those options is
+ * never questioned again — the booking flow answers it.
+ */
+async function offerOptions(
+  ctx: AppContext,
+  input: FrontDoorInput,
+  suggestions: readonly string[],
+): Promise<FrontDoorOverride | null> {
+  if (input.selectedOption) return null;
+  const vehicles = (
+    await listVehicles(ctx.prisma, {
+      tenantId: ctx.config.DEFAULT_TENANT_ID,
+      limit: 100,
+      offset: 0,
+    })
+  ).filter((vehicle) => vehicle.active);
+  const budgetHint = budgetHintFor(
+    vehicles.map((vehicle) => pricingProfileInUsd(vehicle.pricingProfile).dailyRate),
+  );
+  const reply = buildClarifyReply({
+    budgetHint,
+    round: input.clarifyRound,
+    suggestions,
+    customerMessage: input.message,
+    collected: input.collected,
+    previousOptions: input.previousOptions,
+  });
+  if (reply) return { text: reply.text, escalated: false, stage: reply.stage };
+  const handedOver = await escalate(
+    ctx,
+    input,
+    { reason: EscalationReason.AI_UNABLE_TO_PROCEED, tier: EscalationTier.T2 },
+    'Front door: the customer was still unclear after two rounds of options',
+  );
+  return handedOver ? { text: TEAM_AFTER_OPTIONS_TEXT, escalated: true } : null;
 }
 
 /**
@@ -421,6 +589,18 @@ export async function runFrontDoor(
   const phase = withOpenQuestion(phaseOf(input.progress, input.collected), input);
   // A person already owns this conversation.
   if (phase === ConversationPhase.ESCALATED) return answerWhilePersonOwns(ctx, input);
+
+  // The customer picked "Repeat my question in detail".
+  if (input.selectedOption) {
+    const original = originalOfRepeatOption(input.message);
+    if (original !== null) return { text: buildRepeatInDetailReply(original), escalated: false };
+  }
+
+  // "I think Range Rover": a guess, never a selection — the customer is asked to choose.
+  if (!input.selectedOption) {
+    const guess = await hedgedSelectionReply(ctx, input);
+    if (guess) return guess;
+  }
 
   const classification = classifyFrontDoor(input.message, { phase });
   ctx.logger.info(
@@ -483,6 +663,9 @@ export async function runFrontDoor(
     }
     case RequiredAction.ANSWER_PRICE: {
       if (phase === ConversationPhase.QUOTED) return null;
+      if (isPriceSearch(input.message, classification.entities)) {
+        return priceSearchAnswer(ctx, input, classification.entities);
+      }
       const text = await priceReply(ctx, input, { askWhichCar: true });
       return text ? { text, escalated: false } : null;
     }

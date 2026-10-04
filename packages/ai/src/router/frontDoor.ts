@@ -1,4 +1,5 @@
 import { levenshteinDistance } from '../step3/levenshtein.js';
+import { PRICE_EXTREMES_RE, parsePriceBudget } from './clarify.js';
 import { isPhotoRequest } from './photoRequest.js';
 
 /**
@@ -61,6 +62,9 @@ export interface FrontDoorEntities {
   pickupTime?: string;
   dateWords?: string;
   durationDays?: number;
+  /** A daily price ceiling / floor in dollars, e.g. the 300 in "a car under 300 dollars". */
+  budgetMax?: number;
+  budgetMin?: number;
 }
 
 export interface FrontDoorClassification {
@@ -196,7 +200,7 @@ const RULES: Rule[] = [
   rule(
     'HUMAN_REQUEST',
     0.9,
-    /\b(?:talk|speak|connect|transfer|call)\b.{0,20}\b(?:person|agent|someone|staff|team)\b/,
+    /\b(?:talk|speak|connect|transfer|call|contact)\b.{0,20}\b(?:person|agent|someone|staff|team)\b/,
   ),
   rule(
     'PAYMENT_REFUND',
@@ -374,6 +378,12 @@ export function classifyFrontDoor(
   }
   if (isPhotoRequest(message)) scores.set('PHOTO_REQUEST', 0.94);
 
+  // "A car under 300 dollars" / "your cheapest car": a question the fleet database answers.
+  const budget = parsePriceBudget(message);
+  if (budget || PRICE_EXTREMES_RE.test(text)) {
+    scores.set('PRICING', Math.max(scores.get('PRICING') ?? 0, 0.92));
+  }
+
   // A one-word answer only means something against an open question.
   if (scores.has('CONTINUATION') && context.phase === ConversationPhase.NO_CONTEXT) {
     scores.set('CONTINUATION', 0.6);
@@ -385,6 +395,8 @@ export function classifyFrontDoor(
     (a, b) => b[1] - a[1] || TIE_PRIORITY.indexOf(a[0]) - TIE_PRIORITY.indexOf(b[0]),
   );
   const entities = extractEntities(text);
+  if (budget?.max) entities.budgetMax = budget.max;
+  if (budget?.min) entities.budgetMin = budget.min;
   const top = ranked[0];
   if (!top) {
     return {

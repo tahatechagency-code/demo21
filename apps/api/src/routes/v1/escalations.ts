@@ -9,18 +9,15 @@ import { Permission } from '@ai-concierge/domain';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { authenticate } from '../../plugins/auth.js';
 import { requirePermission } from '../../lib/authz.js';
-import {
-  assignEscalation,
-  listEscalations,
-  resolveEscalation,
-} from '../../services/escalationService.js';
+import { listEscalations, resolveEscalation } from '../../services/escalationService.js';
 
 /**
  * The dashboard's Escalation Queue backend — where the human half of "AI
  * kaam nahi kar paye toh human worker ko sms kar de" actually happens: a
  * worker sees the case (they were already paged by SMS when it was
- * created — journeyService.ts's `pageTier`), assigns it to themselves, and
- * resolves it. Every staff tier (T2/T3/T4) can see and act on every case —
+ * created — journeyService.ts's `pageTier`), answers the customer in the same
+ * chat (which claims the case — staffReplyService.ts), and finally hands the
+ * chat back to the AI or ends it (`resolve`). Every staff tier (T2/T3/T4) can see and act on every case —
  * `EscalationCase.tier` is a routing/paging concern, not a visibility wall
  * (see `Permission`'s own doc in packages/domain/src/auth.ts).
  */
@@ -46,30 +43,6 @@ export const escalationRoutes: FastifyPluginAsyncZod = async (app) => {
         },
       );
       reply.status(200).send({ items });
-    },
-  );
-
-  app.post(
-    '/v1/escalations/:escalationCaseId/assign',
-    {
-      preHandler: [authenticate, requirePermission(Permission.ESCALATION_ASSIGN)],
-      schema: {
-        tags: ['admin'],
-        params: escalationCaseParamsSchema,
-        response: { 200: escalationCaseResponseSchema },
-      },
-    },
-    async (request, reply) => {
-      const escalationCase = await assignEscalation(
-        { prisma: app.ctx.prisma },
-        {
-          tenantId: request.auth!.tenantId,
-          escalationCaseId: request.params.escalationCaseId,
-          assignedToUserId: request.auth!.userId,
-          requestId: request.id,
-        },
-      );
-      reply.status(200).send({ escalationCase });
     },
   );
 

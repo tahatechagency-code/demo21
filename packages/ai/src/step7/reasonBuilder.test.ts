@@ -35,7 +35,7 @@ describe('buildAlternativeReason', () => {
     expect(reason).toContain('Urus S');
     expect(reason).toContain('same category');
     expect(reason).toContain('same luxury tier');
-    expect(reason).toContain('AED 100/day more than requested');
+    expect(reason).toContain('$27.23/day more than requested');
     expect(reason).toContain('same make');
   });
 

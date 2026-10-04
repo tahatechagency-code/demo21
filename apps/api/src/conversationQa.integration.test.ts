@@ -188,7 +188,7 @@ describe('conversation QA — 25 scenarios', () => {
     const result = await chat(randomUUID(), 'cancel my booking');
     expect(result.escalated).toBe(true);
     expect(result.reply.text).toMatch(/nothing has been cancelled/i);
-    expect((await cases()).map((row) => row.status)).toEqual(['OPEN']);
+    expect((await cases()).map((row) => row.status)).toEqual(['IN_PROGRESS']);
     expect(gemini.calls).toBe(0);
   });
 
@@ -196,14 +196,14 @@ describe('conversation QA — 25 scenarios', () => {
     expect(classifyFrontDoor('please call off my reservation', none).intent).toBe('CANCELLATION');
     expect(classifyFrontDoor("what's the tariff for the Urus", none).intent).toBe('PRICING');
     const price = await chat(randomUUID(), "what's the tariff for the Urus");
-    expect(price.reply.text).toMatch(/AED 3,500 per day/);
+    expect(price.reply.text).toMatch(/\$953\.03 per day/);
     expect(price.escalated).toBe(false);
     expect(gemini.calls).toBe(0);
   });
 
   it('03 typo: "prise of the urus" and "cancle my bookng" are still understood', async () => {
     const price = await chat(randomUUID(), 'prise of the urus');
-    expect(price.reply.text).toMatch(/AED 3,500/);
+    expect(price.reply.text).toMatch(/\$953\.03/);
     const cancel = await chat(randomUUID(), 'cancle my bookng');
     expect(cancel.escalated).toBe(true);
     expect(gemini.calls).toBe(0);
@@ -235,7 +235,7 @@ describe('conversation QA — 25 scenarios', () => {
     const message =
       'How much is the Urus and can I cancel my other booking and do you deliver to the airport';
     const result = await chat(randomUUID(), message);
-    expect(result.reply.text).toMatch(/AED 3,500/);
+    expect(result.reply.text).toMatch(/\$953\.03/);
     expect(result.reply.text).toMatch(/nothing has been cancelled/i);
     expect(await cases()).toHaveLength(1);
     expect(classifyFrontDoor(message, none).secondaryIntents).toEqual(
@@ -332,20 +332,25 @@ describe('conversation QA — 25 scenarios', () => {
       '16 Gemini misunderstanding',
       { route: 'CONTINUE_BOOKING', intent: 'BOOKING', confidence: 0.3, reply: '' },
     ],
-  ])('%s: never guesses, hands over once, no loop', async (_name, answer) => {
-    gemini.answer = answer;
-    const result = await chat(randomUUID(), 'asdf qwerty zzz');
-    expect(gemini.calls).toBe(1);
-    expect(result.escalated).toBe(true);
-    expect(await cases()).toHaveLength(1);
-    expect(result.reply.text).not.toMatch(/booked|confirmed|cancelled/i);
-  });
+  ])(
+    '%s: never guesses — numbered options first, no person yet, no loop',
+    async (_name, answer) => {
+      gemini.answer = answer;
+      const result = await chat(randomUUID(), 'asdf qwerty zzz');
+      expect(gemini.calls).toBe(1);
+      expect(result.escalated).toBe(false);
+      expect(await cases()).toHaveLength(0);
+      expect(result.reply.text).toContain('1) Repeat my question in detail: "asdf qwerty zzz"');
+      expect(result.reply.text).toContain('4) I want a car under 400 dollars');
+      expect(result.reply.text).not.toMatch(/booked|confirmed|cancelled/i);
+    },
+  );
 
   it('17 human escalation: an explicit request opens a case with the conversation attached', async () => {
     const result = await chat(randomUUID(), 'I want to talk to a real person');
     expect(result.escalated).toBe(true);
     const [row] = await cases();
-    expect(row!.status).toBe('OPEN');
+    expect(row!.status).toBe('IN_PROGRESS');
     const transcript = await testApp.ctx.prisma.message.count({
       where: { conversationId: result.conversationId },
     });
@@ -466,7 +471,7 @@ describe('conversation QA — 25 scenarios', () => {
     const asked = await chat(session, BOOKING);
     expect(asked.journeyState).toBe('ELIGIBILITY_CHECK');
     const priced = await chat(session, FULL_DETAILS);
-    expect(priced.reply.text).toMatch(/Total: AED/);
+    expect(priced.reply.text).toMatch(/Total: \$/);
     expect(priced.quote?.status).toBe('ISSUED');
     const accepted = await chat(session, 'yes, please book it');
     expect(accepted.escalated).toBe(true);

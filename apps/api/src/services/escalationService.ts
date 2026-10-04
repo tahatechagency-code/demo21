@@ -1,6 +1,5 @@
 import {
   acquireJourneyLock,
-  assignEscalationCase,
   findEscalationCaseById,
   findJourneyById,
   findJourneyTransitions,
@@ -17,6 +16,7 @@ import {
   EscalationStatus,
   JourneyState,
   type EscalationCase,
+  type EscalationCaseListItem,
   type ResolveEscalationCaseInput,
   type TenantId,
 } from '@ai-concierge/domain';
@@ -44,43 +44,8 @@ export interface ListEscalationsInput {
 export async function listEscalations(
   deps: EscalationServiceDeps,
   input: ListEscalationsInput,
-): Promise<EscalationCase[]> {
+): Promise<EscalationCaseListItem[]> {
   return listEscalationCases(deps.prisma, input);
-}
-
-export interface AssignEscalationInput {
-  tenantId: TenantId;
-  escalationCaseId: string;
-  assignedToUserId: string;
-  requestId: string;
-}
-
-/** Only an OPEN case can be assigned — an already-assigned/resolved case is never silently reassigned (see escalationCaseRepository.assignEscalationCase). */
-export async function assignEscalation(
-  deps: EscalationServiceDeps,
-  input: AssignEscalationInput,
-): Promise<EscalationCase> {
-  const result = await assignEscalationCase(
-    deps.prisma,
-    input.tenantId,
-    input.escalationCaseId,
-    input.assignedToUserId,
-  );
-  if (!result) {
-    throw new AppError('CONFLICT', 'Escalation case is not OPEN, or does not exist');
-  }
-
-  await new PrismaAuditWriter(deps.prisma).record({
-    tenantId: input.tenantId,
-    actor: `user:${input.assignedToUserId}`,
-    action: 'escalation.assigned',
-    entityType: 'EscalationCase',
-    entityId: result.id,
-    after: { assignedToUserId: input.assignedToUserId },
-    requestId: input.requestId,
-  });
-
-  return result;
 }
 
 export interface ResolveEscalationInput extends ResolveEscalationCaseInput {
@@ -107,12 +72,8 @@ export async function resolveEscalation(
 ): Promise<EscalationCase> {
   return deps.prisma.$transaction(async (tx) => {
     const escalationCase = await findEscalationCaseById(tx, input.tenantId, input.escalationCaseId);
-    if (
-      !escalationCase ||
-      (escalationCase.status !== EscalationStatus.OPEN &&
-        escalationCase.status !== EscalationStatus.IN_PROGRESS)
-    ) {
-      throw new AppError('CONFLICT', 'Escalation case is not open, or does not exist');
+    if (!escalationCase || escalationCase.status !== EscalationStatus.IN_PROGRESS) {
+      throw new AppError('CONFLICT', 'Escalation case is not in progress, or does not exist');
     }
 
     const resolved = await resolveEscalationCase(tx, {

@@ -157,7 +157,9 @@ describe('front door — integration', () => {
 
   it('answers pricing from the catalog, not from the model', async () => {
     const result = await chat(randomUUID(), 'How much is the BMW X5 per day?');
-    expect(result.reply.text).toMatch(/starts from AED 1,200 per day \(Black and White\)/);
+    expect(result.reply.text).toMatch(
+      /starts from \$326\.75 per day, about \$13\.61 per hour \(Black and White\)/,
+    );
     expect(result.reply.text).toMatch(/exact quote/i);
     expect(result.escalated).toBe(false);
     expect(gemini.interpretationCalls).toBe(0);
@@ -219,7 +221,7 @@ describe('front door — integration', () => {
   it('gives Gemini the facts pack: fleet, rates, driver rules and what is NOT PROVIDED', async () => {
     gemini.interpretation = turn({ reply: 'Happy to help with that.' });
     await chat(randomUUID(), 'whats the deal with my papers');
-    expect(gemini.lastPrompt).toContain('BMW X5 (Black/White): from AED 1,200 per day');
+    expect(gemini.lastPrompt).toContain('BMW X5 (Black/White): from $326.75 per day');
     expect(gemini.lastPrompt).toContain('DRIVER REQUIREMENTS:');
     expect(gemini.lastPrompt).toContain('HOURS: NOT PROVIDED');
     expect(gemini.lastPrompt).toContain('LATEST CUSTOMER MESSAGE:\nwhats the deal with my papers');
@@ -275,12 +277,6 @@ describe('front door — integration', () => {
       'unsure and asks for a person',
       turn({ route: 'HUMAN', intent: 'UNKNOWN', confidence: 0.2, human_reason: 'unclear' }),
     ],
-    [
-      'low confidence',
-      turn({ intent: 'BOOKING', confidence: 0.3, reply: 'Sure, whatever you like.' }),
-    ],
-    ['off-schema', { hello: 'world' }],
-    ['timing out / failing', 'THROW'],
   ])('escalates to a person when Gemini is %s — one call, no loop', async (_label, answer) => {
     gemini.interpretation = answer;
     const result = await chat(randomUUID(), 'asdf qwerty zzz');
@@ -289,6 +285,36 @@ describe('front door — integration', () => {
     expect(result.reply.text).toMatch(/member of our team/i);
     const escalation = await testApp.ctx.prisma.escalationCase.findFirstOrThrow();
     expect(escalation.detail).toMatch(/AI_UNCERTAIN/);
+  });
+
+  it.each([
+    [
+      'low confidence',
+      turn({ intent: 'BOOKING', confidence: 0.3, reply: 'Sure, whatever you like.' }),
+    ],
+    ['off-schema', { hello: 'world' }],
+    ['timing out / failing', 'THROW'],
+    [
+      'saying it cannot tell',
+      turn({
+        route: 'UNCLEAR',
+        intent: 'UNKNOWN',
+        confidence: 0.2,
+        suggestions: ['I want photos of the Ferrari Roma', 'I want to book the BMW X5'],
+      }),
+    ],
+  ])('offers numbered options — not a person yet — when Gemini is %s', async (_label, answer) => {
+    gemini.interpretation = answer;
+    const result = await chat(randomUUID(), 'asdf qwerty zzz');
+    expect(gemini.interpretationCalls).toBe(1);
+    expect(result.escalated).toBe(false);
+    expect(await testApp.ctx.prisma.escalationCase.count()).toBe(0);
+    expect(result.reply.text).toContain('1) Repeat my question in detail: "asdf qwerty zzz"');
+    expect(result.reply.text).toContain('4) I want a car under 400 dollars');
+    const stored = await testApp.ctx.prisma.outboundMessage.findFirstOrThrow({
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(stored.stage).toBe('CLARIFY_1');
   });
 
   it('uses the caring reply Gemini wrote when it asks for a person and the reply is safe', async () => {
@@ -310,7 +336,7 @@ describe('front door — integration', () => {
     ['invents opening hours', 'Yes, we are open 24/7, any time.', 'UNGROUNDED_HOURS'],
     ['denies being an AI', 'Nope, not a robot! Ask me anything.', 'DENIES_BEING_AI'],
     ['promises to check', 'Let me check on that and get back to you.', 'UNKEPT_PROMISE'],
-    ['invents a price', 'The X5 is only AED 500 per day.', 'UNGROUNDED_NUMBER'],
+    ['invents a price', 'The X5 is only $500 per day.', 'UNGROUNDED_NUMBER'],
     ['claims an action', 'Done, I have cancelled it for you.', 'CLAIMS_AN_ACTION'],
   ])('never sends a Gemini answer that %s: a person takes over', async (_label, reply, why) => {
     gemini.interpretation = turn({ reply });
@@ -346,7 +372,7 @@ describe('front door — integration', () => {
     expect(result.escalated).toBe(false);
   });
 
-  it('a rules question is never passed on to the booking flow: Gemini answers it or a person does', async () => {
+  it('a rules question is never passed on to the booking flow: Gemini answers it, or the customer gets options', async () => {
     gemini.interpretation = turn({
       route: 'CONTINUE_BOOKING',
       intent: 'BOOKING',
@@ -355,7 +381,10 @@ describe('front door — integration', () => {
     const result = await chat(randomUUID(), 'I am 22, can I rent a Ferrari?');
     expect(gemini.interpretationCalls).toBe(1);
     expect(gemini.lastPrompt).toContain('CONTINUE_BOOKING is not allowed');
-    expect(result.escalated).toBe(true);
+    expect(result.escalated).toBe(false);
+    expect(result.reply.text).toContain(
+      '4) What is the price of the Ferrari Roma per day and per hour?',
+    );
   });
 
   it('an answer that promises the team will ask is treated as the hand-over it is', async () => {
@@ -440,7 +469,7 @@ describe('front door — integration', () => {
     await chat(session, 'Cancel my BMW booking');
     const cases = await testApp.ctx.prisma.escalationCase.count();
     const price = await chat(session, 'How much is the Ferrari Roma?');
-    expect(price.reply.text).toMatch(/starts from AED 4,000/);
+    expect(price.reply.text).toMatch(/starts from \$1,089.18/);
     expect(price.reply.text).toMatch(/team is still looking after/i);
     const fleet = await chat(session, 'what cars do you have?');
     expect(fleet.reply.text).toMatch(/We offer/);
@@ -455,7 +484,7 @@ describe('front door — integration', () => {
       randomUUID(),
       'How much is the Ferrari Roma, can I cancel my other booking and do you deliver to the airport?',
     );
-    expect(result.reply.text).toMatch(/On pricing: The Ferrari Roma starts from AED 4,000/);
+    expect(result.reply.text).toMatch(/On pricing: The Ferrari Roma starts from \$1,089.18/);
     expect(result.reply.text).toMatch(/nothing has been cancelled/i);
     expect(result.reply.text).toMatch(/On pickup and delivery: we cover .*Dubai Airport/);
     expect(await testApp.ctx.prisma.escalationCase.count()).toBe(1);

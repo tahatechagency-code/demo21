@@ -168,3 +168,37 @@ export class Money {
 export function sumMoney(currency: string, values: Money[]): Money {
   return values.reduce((total, value) => total.add(value), Money.zero(currency));
 }
+
+/**
+ * Every price a customer or staff member sees is in US dollars. The business keeps its price list in
+ * dollars; a record still stored in dirhams (older vehicles and quotes) is converted for display at
+ * the dirham's fixed peg to the dollar (3.6725 AED per USD since 1997), so no screen or message ever
+ * mixes currencies. Money stored in any other currency is shown as stored, never guessed at.
+ */
+export const DISPLAY_CURRENCY = 'USD';
+const PEG_PER_USD: Record<string, number> = { USD: 1, AED: 3.6725 };
+
+/** Whole-dollar amounts show no cents ("$953"); anything else shows two decimals ("$953.03"). */
+function dollars(amount: number): string {
+  const rounded = Math.round(amount * 100) / 100;
+  return Number.isInteger(rounded)
+    ? rounded.toLocaleString('en-US')
+    : rounded.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** The amount in US dollars, or `null` when its currency has no known conversion. */
+export function toUsdAmount(amount: number, currency: string): number | null {
+  const perUsd = PEG_PER_USD[currency.toUpperCase()];
+  return perUsd === undefined ? null : Math.round((amount / perUsd) * 100) / 100;
+}
+
+/** "$1,470" / "$953.03" for a major-unit amount (`dailyRate`, a deposit). */
+export function formatUsdAmount(amount: number, currency: string = DISPLAY_CURRENCY): string {
+  const usd = toUsdAmount(amount, currency);
+  return usd === null ? `${currency} ${dollars(amount)}` : `$${dollars(usd)}`;
+}
+
+/** The same for an integer count of minor units (a quote total, in cents). */
+export function formatUsdMinor(minorUnits: number, currency: string): string {
+  return formatUsdAmount(minorUnits / 100, currency);
+}

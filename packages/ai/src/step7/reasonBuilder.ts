@@ -1,4 +1,4 @@
-import type { Vehicle } from '@ai-concierge/domain';
+import { formatUsdAmount, type Vehicle } from '@ai-concierge/domain';
 import type { RankedCandidate } from './types.js';
 
 /**
@@ -31,8 +31,8 @@ export function buildAlternativeReason(requested: Vehicle, candidate: RankedCand
     const direction = diff === 0 ? 'same price as' : diff > 0 ? 'more than' : 'less than';
     notes.push(
       diff === 0
-        ? `same daily rate as requested (${candidate.ranking.currency} ${requested.pricingProfile.dailyRate})`
-        : `${candidate.ranking.currency} ${Math.abs(diff)}/day ${direction} requested`,
+        ? `same daily rate as requested (${formatUsdAmount(requested.pricingProfile.dailyRate, requested.pricingProfile.currency)})`
+        : `${formatUsdAmount(Math.abs(diff), candidate.ranking.currency ?? requested.pricingProfile.currency)}/day ${direction} requested`,
     );
   }
 

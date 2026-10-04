@@ -40,7 +40,7 @@ test.describe('deployed concierge chat (real browser + real Gemini)', () => {
   test('a car price comes from the catalogue', async ({ page }) => {
     await openChat(page);
     const reply = await say(page, 'How much is the BMW X5 per day?');
-    expect(reply).toMatch(/BMW X5 starts from AED [\d,]+ per day/);
+    expect(reply).toMatch(/BMW X5 starts from \$[\d,.]+ per day/);
   });
 
   test('"what cars do you have" lists the fleet', async ({ page }) => {
@@ -104,7 +104,7 @@ test.describe('deployed concierge chat (real browser + real Gemini)', () => {
       page,
       'How much is the Ferrari Roma, can I cancel my other booking and do you deliver to the airport?',
     );
-    expect(reply).toMatch(/Ferrari Roma starts from AED/);
+    expect(reply).toMatch(/Ferrari Roma starts from \$/);
     expect(reply).toMatch(/nothing has been cancelled/i);
     expect(reply).toMatch(/Dubai Airport/);
   });

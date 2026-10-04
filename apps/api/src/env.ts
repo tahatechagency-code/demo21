@@ -55,6 +55,9 @@ export const apiEnvSchema = baseEnvSchema.extend({
   FLEET_API_TIMEOUT_MS: z.coerce.number().int().positive().default(3000),
   // How long a temporary hold survives before it lapses back to available capacity.
   AVAILABILITY_HOLD_TTL_SECONDS: z.coerce.number().int().positive().default(900),
+  // How often the AI checks for quiet chats to nudge (3 min / 30 min / 1 week after its last message).
+  // 0 switches the follow-ups off.
+  FOLLOW_UP_SWEEP_INTERVAL_MS: z.coerce.number().int().nonnegative().default(30_000),
   // Turnaround buffer applied to both ends of an overlap check (cleaning/inspection window).
   AVAILABILITY_TURNAROUND_BUFFER_MINUTES: z.coerce.number().int().nonnegative().default(120),
 

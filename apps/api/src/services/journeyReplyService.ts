@@ -1,6 +1,7 @@
 import { sanitizeForProcessing, type AIProvider } from '@ai-concierge/ai';
 import {
   EligibilityIntakeField,
+  formatUsdMinor,
   isAppError,
   type CollectedBookingInfo,
   type EligibilityIntakeFieldValue,
@@ -71,11 +72,8 @@ const MAX_REPLY_CHARS = 1400;
 // Formatting
 // ---------------------------------------------------------------------------
 
-function formatMoney(minorUnits: number, currency: string): string {
-  const major = minorUnits / 100;
-  const digits = minorUnits % 100 === 0 ? 0 : 2;
-  return `${currency} ${major.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
-}
+/** Every amount a customer reads is in US dollars. */
+const formatMoney = formatUsdMinor;
 
 const MONTH_ABBREVIATIONS = [
   'Jan',
@@ -199,7 +197,9 @@ function describeQuote(quote: QuoteSnapshot): string {
 }
 
 function quoteNumbers(quote: QuoteSnapshot): string[] {
-  return [normalizeNumber(String(quote.total.minorUnits / 100))];
+  // The total as the customer reads it: in dollars, whatever currency the quote itself was priced in.
+  const total = formatMoney(quote.total.minorUnits, quote.total.currency);
+  return [normalizeNumber(total.replace(/[^\d.]/g, ''))];
 }
 
 function draftQuote(

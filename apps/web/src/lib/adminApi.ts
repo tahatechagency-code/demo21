@@ -150,14 +150,6 @@ export function fetchProviderStatus(): Promise<ProviderStatusResponse> {
   return adminGet('/v1/settings/providers', providerStatusResponseSchema);
 }
 
-export function assignEscalation(escalationCaseId: string): Promise<EscalationCaseResponse> {
-  return adminPost(
-    `/v1/escalations/${encodeURIComponent(escalationCaseId)}/assign`,
-    {},
-    escalationCaseResponseSchema,
-  );
-}
-
 export function resolveEscalation(
   escalationCaseId: string,
   body: { resolution: 'APPROVED' | 'REJECTED'; resolutionNote: string },

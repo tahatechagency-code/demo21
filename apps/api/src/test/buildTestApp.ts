@@ -105,6 +105,8 @@ export async function buildTestApp(
     FLEET_PROVIDER: 'database',
     FLEET_API_TIMEOUT_MS: 3000,
     AVAILABILITY_HOLD_TTL_SECONDS: 900,
+    // Tests drive follow-ups by calling the sweep directly; no background timer.
+    FOLLOW_UP_SWEEP_INTERVAL_MS: 0,
     AVAILABILITY_TURNAROUND_BUFFER_MINUTES: 120,
     ...overrides,
   };

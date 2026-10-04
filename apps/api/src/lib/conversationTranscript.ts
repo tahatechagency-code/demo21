@@ -1,3 +1,5 @@
+import { maskHedgedClauses } from '@ai-concierge/ai';
+
 /**
  * Bounds on how much conversation history gets joined into one extraction
  * input — never trust customer input, including its volume: without a cap,
@@ -25,10 +27,17 @@ const MAX_TRANSCRIPT_LENGTH = 8000;
  * customer's own multi-line message ("I want a Lamborghini Urus\nfor an SUV
  * trip please") would be misread as two separate turns, and the second
  * "turn" could wrongly outrank the first.
+ *
+ * A guess is not a choice: a clause like "I think Range Rover" or "maybe pick up in Dubai" is left out
+ * of the transcript, so no later step can read it back as the car, the place or the date the customer
+ * selected. The customer is asked to choose clearly instead (see frontDoor/clarification.ts).
  */
 export function buildAccumulatedTranscript(messages: Array<{ content: string }>): string {
   const recent = messages.slice(-MAX_TRANSCRIPT_MESSAGES);
-  const joined = recent.map((message) => message.content.replace(/\r\n|\r|\n/g, ' ')).join('\n');
+  const joined = recent
+    .map((message) => message.content.replace(/\r\n|\r|\n/g, ' '))
+    .map(maskHedgedClauses)
+    .join('\n');
   return joined.length > MAX_TRANSCRIPT_LENGTH
     ? joined.slice(joined.length - MAX_TRANSCRIPT_LENGTH)
     : joined;

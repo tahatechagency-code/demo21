@@ -1,6 +1,11 @@
-import { DEFAULT_REPLY_SUBJECT, type EmailProvider, type WhatsAppProvider } from '@ai-concierge/channels';
+import {
+  DEFAULT_REPLY_SUBJECT,
+  type EmailProvider,
+  type WhatsAppProvider,
+} from '@ai-concierge/channels';
 import type { StaffReplyResponse } from '@ai-concierge/contracts';
 import {
+  assignEscalationCaseToStaff,
   createOutboundMessage,
   findConversationById,
   findJourneyByConversationId,
@@ -23,6 +28,16 @@ export interface StaffReplyInput {
   conversationId: string;
   message: string;
   requestId: string;
+}
+
+/**
+ * Every message from a person is marked as theirs, so the customer can tell it from the AI. The web
+ * chat draws its own highlighted "Team member" label; WhatsApp and email get the label in the text.
+ */
+export function labelStaffMessage(channel: string, text: string): string {
+  if (channel === 'WHATSAPP') return `*Team member*\n${text}`;
+  if (channel === 'EMAIL') return `Team member:\n\n${text}`;
+  return text;
 }
 
 /**
@@ -71,20 +86,20 @@ export async function sendStaffReply(
     { tenantId: input.tenantId, channel: conversation.channel, text: input.message },
   );
 
+  const outgoing = labelStaffMessage(conversation.channel, input.message);
   let delivery: StaffReplyResponse['delivery'];
   let emailError: string | null = null;
   if (conversation.channel === 'WEB') {
     // The customer's chat polls the same conversation, so storing it *is* delivering it.
     delivery = 'STORED';
   } else if (conversation.channel === 'WHATSAPP') {
-    delivery = (
-      await deps.whatsappProvider.sendTextMessage(conversation.customerRef, input.message)
-    ).status;
+    delivery = (await deps.whatsappProvider.sendTextMessage(conversation.customerRef, outgoing))
+      .status;
   } else {
     const result = await deps.emailProvider.sendEmail(
       conversation.customerRef,
       DEFAULT_REPLY_SUBJECT,
-      input.message,
+      outgoing,
     );
     delivery = result.status;
     emailError = result.error ?? null;
@@ -101,6 +116,10 @@ export async function sendStaffReply(
       stage: 'STAFF_REPLY',
       authorUserId: input.userId,
     });
+    // The first person to answer in an escalated chat is the one the queue shows as handling it.
+    if (journey) {
+      await assignEscalationCaseToStaff(deps.prisma, input.tenantId, journey.id, input.userId);
+    }
     stored = {
       id: row.id,
       role: 'STAFF',
@@ -117,7 +136,7 @@ export async function sendStaffReply(
     await createOutboundMessage(deps.prisma, {
       tenantId: input.tenantId,
       conversationId: input.conversationId,
-      content: input.message,
+      content: outgoing,
       source: 'HUMAN',
       stage: 'STAFF_REPLY',
       authorUserId: input.userId,

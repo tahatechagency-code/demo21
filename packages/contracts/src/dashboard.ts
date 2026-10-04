@@ -27,7 +27,6 @@ export const dashboardSummaryResponseSchema = z.object({
     ),
   }),
   escalations: z.object({
-    open: z.number().int().nonnegative(),
     inProgress: z.number().int().nonnegative(),
     slaBreached: z.number().int().nonnegative(),
   }),

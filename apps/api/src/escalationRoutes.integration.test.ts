@@ -17,7 +17,7 @@ import { FakeNotificationProvider } from './test/fakeNotificationProvider.js';
 /**
  * Route-level coverage (auth + permission enforcement + HTTP shape) for the
  * dashboard's Escalation Queue and Journey read surface. Deeper business
- * logic (resume-to-correct-state, assign/resolve conflicts) is already
+ * logic (resume-to-correct-state, resolve conflicts) is already
  * covered service-level in escalationService.integration.test.ts /
  * journeyService.integration.test.ts — this file exists to prove the HTTP
  * layer wires those services correctly and actually enforces auth.
@@ -89,27 +89,30 @@ describe('escalation + journey routes', () => {
     expect(response.statusCode).toBe(401);
   });
 
-  it('an OPS_AGENT can list, assign, and resolve an escalation over real HTTP', async () => {
+  it('an OPS_AGENT can list and resolve an escalation over real HTTP', async () => {
     await seedEscalatedConversation();
     await seedTestUser(testApp.ctx.prisma, { tenantId: TEST_TENANT_ID, role: 'OPS_AGENT' });
     const token = await login('ops@example.com');
 
     const list = await testApp.app.inject({
       method: 'GET',
-      url: '/v1/escalations?status=OPEN',
+      url: '/v1/escalations?status=IN_PROGRESS',
       headers: { authorization: `Bearer ${token}` },
     });
     expect(list.statusCode).toBe(200);
     const { items } = list.json();
     expect(items).toHaveLength(1);
+    // Every case starts with the team, tied to its chat, with no staff reply yet.
+    expect(items[0]).toMatchObject({ status: 'IN_PROGRESS', humanReplied: false });
+    expect(items[0].conversationId).toEqual(expect.any(String));
 
+    // There is no separate "assign" step any more: a staff member's first reply claims the case.
     const assign = await testApp.app.inject({
       method: 'POST',
       url: `/v1/escalations/${items[0].id}/assign`,
       headers: { authorization: `Bearer ${token}` },
     });
-    expect(assign.statusCode).toBe(200);
-    expect(assign.json().escalationCase.status).toBe('IN_PROGRESS');
+    expect(assign.statusCode).toBe(404);
 
     const resolve = await testApp.app.inject({
       method: 'POST',
@@ -121,6 +124,17 @@ describe('escalation + journey routes', () => {
     expect(resolve.json().escalationCase.status).toBe('RESOLVED');
   });
 
+  it('no longer accepts the removed OPEN status filter', async () => {
+    await seedTestUser(testApp.ctx.prisma, { tenantId: TEST_TENANT_ID, role: 'OPS_AGENT' });
+    const token = await login('ops@example.com');
+    const list = await testApp.app.inject({
+      method: 'GET',
+      url: '/v1/escalations?status=OPEN',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(list.statusCode).toBe(400);
+  });
+
   it('rejects a resolve body missing a required field', async () => {
     const conversation = await seedEscalatedConversation();
     await seedTestUser(testApp.ctx.prisma, { tenantId: TEST_TENANT_ID, role: 'OPS_AGENT' });
@@ -129,7 +143,7 @@ describe('escalation + journey routes', () => {
 
     const list = await testApp.app.inject({
       method: 'GET',
-      url: '/v1/escalations?status=OPEN',
+      url: '/v1/escalations?status=IN_PROGRESS',
       headers: { authorization: `Bearer ${token}` },
     });
     const { items } = list.json();

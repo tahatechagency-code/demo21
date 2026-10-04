@@ -1,7 +1,12 @@
 import { FaqTopic, LOCATION_KEYWORDS, type FaqTopicValue } from '@ai-concierge/ai';
 import { findActiveEligibilityPolicy, listVehicles } from '@ai-concierge/db';
-import type { CollectedBookingInfo } from '@ai-concierge/domain';
+import {
+  formatUsdAmount,
+  pricingProfileInUsd,
+  type CollectedBookingInfo,
+} from '@ai-concierge/domain';
 import type { AppContext } from '../../context.js';
+import { formatDubaiNow } from '../../lib/dubaiTime.js';
 
 /**
  * Everything the concierge is allowed to state, assembled from the database (fleet, prices, the
@@ -42,9 +47,17 @@ function titleCase(place: string): string {
         .join(' ');
 }
 
+export interface FactsPackOptions {
+  /** The fleet-database search result for a budget question, already worded as facts (see `describePriceSearch`). */
+  priceSearch?: string;
+  /** The moment the conversation is happening in; defaults to now. */
+  now?: Date;
+}
+
 export async function buildFactsPack(
   ctx: AppContext,
   collected: CollectedBookingInfo,
+  options: FactsPackOptions = {},
 ): Promise<FactsPack> {
   const tenantId = ctx.config.DEFAULT_TENANT_ID;
   const [vehicles, policy] = await Promise.all([
@@ -54,16 +67,15 @@ export async function buildFactsPack(
 
   const models = new Map<
     string,
-    { colours: string[]; from: number; currency: string; tier: string; deposit?: number }
+    { colours: string[]; from: number; tier: string; deposit?: number }
   >();
   for (const vehicle of vehicles.filter((entry) => entry.active)) {
     const name = `${vehicle.make} ${vehicle.model}`;
     const existing = models.get(name);
-    const { dailyRate, currency, depositAmount } = vehicle.pricingProfile;
+    const { dailyRate, depositAmount } = pricingProfileInUsd(vehicle.pricingProfile);
     models.set(name, {
       colours: [...(existing?.colours ?? []), vehicle.color],
       from: Math.min(existing?.from ?? dailyRate, dailyRate),
-      currency,
       tier: vehicle.luxuryTier,
       ...(depositAmount !== undefined ? { deposit: depositAmount } : {}),
     });
@@ -72,8 +84,8 @@ export async function buildFactsPack(
     .sort(([left], [right]) => left.localeCompare(right))
     .map(
       ([name, model]) =>
-        `- ${name} (${model.colours.join('/')}): from ${model.currency} ${model.from.toLocaleString('en-US')} per day` +
-        `${model.deposit !== undefined ? `, deposit ${model.currency} ${model.deposit.toLocaleString('en-US')}` : ''}; tier ${model.tier}`,
+        `- ${name} (${model.colours.join('/')}): from ${formatUsdAmount(model.from)} per day` +
+        `${model.deposit !== undefined ? `, deposit ${formatUsdAmount(model.deposit)}` : ''}; tier ${model.tier}`,
     );
 
   const requirements = policy
@@ -111,11 +123,15 @@ export async function buildFactsPack(
     'COMPANY: Edel & Stark, a luxury car rental concierge in Dubai. You are its AI concierge; if asked, say so plainly and mention the team is available for anyone who prefers a person.',
     'YOU CAN: answer from the facts below, quote daily rates, say photos of a car can be sent (the system attaches staff-uploaded photos), and collect booking details (car, dates, pickup place).',
     'YOU CANNOT (the team does these): cancel, refund, change or confirm a booking or payment, or promise a callback or a time.',
-    `FLEET (rates are per day, in the currency shown):\n${fleetLines.join('\n')}`,
+    `NOW: ${formatDubaiNow(options.now ?? new Date())} (Dubai time). Use it for today, tomorrow, weekdays and next week; a pickup earlier than NOW is in the past.`,
+    `FLEET (rates are per day, in US dollars):\n${fleetLines.join('\n')}`,
     `DRIVER REQUIREMENTS: ${requirements}`,
     `PICKUP / DELIVERY PLACES: ${places.join(', ')}.`,
     `BUSINESS FACTS:\n${businessLines.join('\n')}`,
     `BOOKING SO FAR: car ${collected.vehicle ? `${collected.vehicle.make} ${collected.vehicle.model} (${collected.vehicle.color})` : 'not chosen'}; pickup ${collected.pickupDate ?? 'not given'}; return ${collected.returnDate ?? 'not given'}; place ${collected.pickupLocation?.normalized ?? 'not given'}. Still needed: ${missing.join(', ') || 'nothing'}.`,
+    ...(options.priceSearch
+      ? [`PRICE SEARCH RESULT (from the fleet database, in US dollars):\n${options.priceSearch}`]
+      : []),
   ].join('\n');
 
   // Deposits are stated per car in the fleet lines, so the topic is answerable once any car has one.

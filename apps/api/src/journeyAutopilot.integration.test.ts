@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { createEligibilityPolicyVersion, createVehicle, createVehicleUnit } from '@ai-concierge/db';
-import type { EligibilityPolicyRules } from '@ai-concierge/domain';
+import { formatUsdMinor, type EligibilityPolicyRules } from '@ai-concierge/domain';
 import { seedTestTenants, truncateAllTables, TEST_TENANT_ID } from '@ai-concierge/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from './test/buildTestApp.js';
@@ -34,13 +34,9 @@ const BOOKING =
 const FULL_DETAILS =
   "I'm Indian, born 12 May 1990, I hold a UAE driving licence and I can provide my passport";
 
-/** Mirrors how replies print a total: whole amounts bare, cents as exactly two digits. */
-function formatTotal(minorUnits: number): string {
-  const digits = minorUnits % 100 === 0 ? 0 : 2;
-  return (minorUnits / 100).toLocaleString('en-US', {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
+/** How replies print a total: always US dollars, whole amounts bare, cents as exactly two digits. */
+function formatTotal(minorUnits: number, currency: string): string {
+  return formatUsdMinor(minorUnits, currency);
 }
 
 function sign(body: string): string {
@@ -180,8 +176,8 @@ describe('automatic Steps 5-8 chain — integration', () => {
 
       const quoteReply = await say(from, FULL_DETAILS);
       expect(quoteReply).toMatch(/available/i);
-      expect(quoteReply).toMatch(/Total: AED/);
-      expect(quoteReply).toMatch(/Security deposit: AED/);
+      expect(quoteReply).toMatch(/Total: \$/);
+      expect(quoteReply).toMatch(/Security deposit: \$/);
       expect(quoteReply).not.toMatch(/confirmed|booked/i);
 
       const { conversation, journey } = await journeyFor(from);
@@ -198,8 +194,8 @@ describe('automatic Steps 5-8 chain — integration', () => {
       const quote = await prisma.quote.findFirst({ where: { conversationId: conversation!.id } });
       expect(quote?.status).toBe('ISSUED');
       const totalMinor = (quote!.total as { minorUnits: number }).minorUnits;
-      const total = formatTotal(totalMinor);
-      expect(quoteReply).toContain(`Total: AED ${total}`);
+      const total = formatTotal(totalMinor, quote!.currency);
+      expect(quoteReply).toContain(`Total: ${total}`);
 
       // The customer's date of birth is stored encrypted, never in the clear.
       const intake = await prisma.eligibilityIntake.findFirst({
@@ -243,7 +239,7 @@ describe('automatic Steps 5-8 chain — integration', () => {
       expect(fourth).toMatch(/passport/i);
 
       const fifth = await say(from, 'yes');
-      expect(fifth).toMatch(/Total: AED/);
+      expect(fifth).toMatch(/Total: \$/);
       expect((await journeyFor(from)).journey?.state).toBe('QUOTE_ISSUED');
     },
   );
@@ -262,7 +258,7 @@ describe('automatic Steps 5-8 chain — integration', () => {
       expect((await journeyFor(from)).journey?.state).toBe('ELIGIBILITY_CHECK');
 
       const done = await say(from, '3 April 1990');
-      expect(done).toMatch(/Total: AED/);
+      expect(done).toMatch(/Total: \$/);
     },
   );
 
@@ -309,7 +305,7 @@ describe('automatic Steps 5-8 chain — integration', () => {
 
       const quoted = await say(from, 'The Range Rover please, same dates');
       expect(quoted).toMatch(/Range Rover/);
-      expect(quoted).toMatch(/Total: AED/);
+      expect(quoted).toMatch(/Total: \$/);
       expect((await journeyFor(from)).journey?.state).toBe('QUOTE_ISSUED');
     },
   );
@@ -333,7 +329,7 @@ describe('automatic Steps 5-8 chain — integration', () => {
       const escalation = await testApp.ctx.prisma.escalationCase.findFirst({
         where: { journeyId: journey!.id },
       });
-      expect(escalation?.status).toBe('OPEN');
+      expect(escalation?.status).toBe('IN_PROGRESS');
       expect(escalation?.detail).toMatch(/accepted quote/i);
 
       const waiting = await say(from, 'Thanks, when will they call?');
@@ -356,7 +352,7 @@ describe('automatic Steps 5-8 chain — integration', () => {
         from,
         'What is included in that price and how does the deposit work?',
       );
-      expect(reply).toMatch(/Total: AED/);
+      expect(reply).toMatch(/Total: \$/);
       expect((await journeyFor(from)).journey?.state).toBe('QUOTE_ISSUED');
     },
   );
@@ -407,7 +403,9 @@ describe('automatic Steps 5-8 chain — integration', () => {
       const nudged = await say(from, 'I need to rent a car');
       const { journey: stalled } = await journeyFor(from);
       expect(stalled?.state).toBe('ESCALATED');
-      expect(await testApp.ctx.prisma.escalationCase.count({ where: { status: 'OPEN' } })).toBe(1);
+      expect(
+        await testApp.ctx.prisma.escalationCase.count({ where: { status: 'IN_PROGRESS' } }),
+      ).toBe(1);
       // The customer is NOT handed a "team is looking after you" dead end: Step 4 carries on.
       expect(nudged).toBe(vehicleReply);
       expect(nudged).not.toMatch(/already looking after/i);
@@ -419,13 +417,15 @@ describe('automatic Steps 5-8 chain — integration', () => {
       expect(asksDetails).toMatch(/date of birth/i);
       const { journey } = await journeyFor(from);
       expect(journey?.state).toBe('ELIGIBILITY_CHECK');
-      expect(await testApp.ctx.prisma.escalationCase.count({ where: { status: 'OPEN' } })).toBe(0);
+      expect(
+        await testApp.ctx.prisma.escalationCase.count({ where: { status: 'IN_PROGRESS' } }),
+      ).toBe(0);
       expect(
         await testApp.ctx.prisma.escalationCase.count({ where: { status: 'CANCELLED' } }),
       ).toBe(1);
 
       const quote = await say(from, FULL_DETAILS);
-      expect(quote).toMatch(/Total: AED/);
+      expect(quote).toMatch(/Total: \$/);
     },
   );
 
@@ -502,7 +502,7 @@ describe('automatic Steps 5-8 chain with Gemini — integration', () => {
       } else if (input.schemaName === 'journey-reply-v1') {
         const draft = /Draft to rewrite:\n"""\n([\s\S]*)\n"""/.exec(input.prompt)?.[1] ?? '';
         json = {
-          reply: replyMode === 'echo-draft' ? `[AI] ${draft}` : 'Your total is AED 1,000. Enjoy!',
+          reply: replyMode === 'echo-draft' ? `[AI] ${draft}` : 'Your total is $1,000. Enjoy!',
         };
       } else {
         json = { reply: 'Quel jour souhaitez-vous ?' };
@@ -592,7 +592,7 @@ describe('automatic Steps 5-8 chain with Gemini — integration', () => {
 
       // ... the chain ran to a quote, and the model's wording is what was sent.
       expect(reply).toMatch(/^\[AI\]/);
-      expect(reply).toMatch(/Total: AED/);
+      expect(reply).toMatch(/Total: \$/);
       const outbound = await testApp.ctx.prisma.outboundMessage.findMany({
         orderBy: { createdAt: 'asc' },
       });
@@ -610,12 +610,13 @@ describe('automatic Steps 5-8 chain with Gemini — integration', () => {
       await say(from, BOOKING);
       const reply = await say(from, FRENCH);
 
-      expect(reply).not.toMatch(/AED 1,000/);
+      expect(reply).not.toMatch(/\$1,000/);
       const quote = await testApp.ctx.prisma.quote.findFirst();
-      const total = ((quote!.total as { minorUnits: number }).minorUnits / 100).toLocaleString(
-        'en-US',
+      const total = formatTotal(
+        (quote!.total as { minorUnits: number }).minorUnits,
+        quote!.currency,
       );
-      expect(reply).toContain(`Total: AED ${total}`);
+      expect(reply).toContain(`Total: ${total}`);
       const outbound = await testApp.ctx.prisma.outboundMessage.findMany({
         orderBy: { createdAt: 'asc' },
       });

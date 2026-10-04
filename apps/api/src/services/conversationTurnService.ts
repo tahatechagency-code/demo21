@@ -1,3 +1,4 @@
+import { queryForOption, resolveOptionChoice } from '@ai-concierge/ai';
 import {
   createOutboundMessage,
   findMessagesForConversation,
@@ -25,6 +26,7 @@ import { advanceJourneyAutomatically } from './journeyAutopilotService.js';
 import type { JourneyProgress } from './journeyProgress.js';
 import { generateJourneyReply, type JourneyReply } from './journeyReplyService.js';
 import { syncJourneyAfterMissingInfo } from './journeyService.js';
+import { loadClarifyContext, type ClarifyContext } from './frontDoor/clarification.js';
 import { runFrontDoor, type FrontDoorOverride } from './frontDoor/frontDoorService.js';
 import { buildPhotoReply } from './vehiclePhotoReplyService.js';
 
@@ -39,7 +41,8 @@ export interface InboundTurnInput {
 
 export interface InboundTurnResult {
   conversationId: string;
-  reply: JourneyReply;
+  /** `reply.stage` is the journey stage, or CLARIFY_1 / CLARIFY_2 when the reply offers numbered options. */
+  reply: Omit<JourneyReply, 'stage'> & { stage: string };
   progress: JourneyProgress;
   missingInfoStatus: string;
   /** Car photos to send with the reply (stored as ids; each channel turns them into what it can send). */
@@ -133,6 +136,16 @@ export async function handleInboundTurn(
 ): Promise<InboundTurnResult> {
   const tenantId = ctx.config.DEFAULT_TENANT_ID;
 
+  // "2" after we offered numbered options means that option: from here on it is the customer's message.
+  let clarify: ClarifyContext = { round: 0, options: [] };
+  try {
+    clarify = await loadClarifyContext(ctx.prisma, tenantId, input.channel, input.customerRef);
+  } catch (error) {
+    ctx.logger.error({ err: error }, 'could not read the open options for this chat');
+  }
+  const choice = resolveOptionChoice(input.body, clarify.options);
+  const body = choice ? queryForOption(choice) : input.body;
+
   const pipeline = await runFullEnquiryPipeline(
     {
       prisma: ctx.prisma,
@@ -146,7 +159,7 @@ export async function handleInboundTurn(
       tenantId,
       channel: input.channel,
       customerRef: input.customerRef,
-      message: input.body,
+      message: body,
       requestId: input.requestId,
     },
   );
@@ -211,7 +224,7 @@ export async function handleInboundTurn(
           journey,
           missingInfoStatus: missingInfo.status,
           collected: missingInfo.collected,
-          customerMessage: input.body,
+          customerMessage: body,
           intentType: pipeline.enquiry.intent.intentType,
         },
       )
@@ -226,13 +239,16 @@ export async function handleInboundTurn(
   let override: FrontDoorOverride | null = null;
   try {
     override = await runFrontDoor(ctx, {
-      message: input.body,
+      message: body,
       conversationId,
       requestId: input.requestId,
       progress,
       collected: missingInfo.collected,
       resolvedVehicleId,
       turns,
+      clarifyRound: clarify.round,
+      previousOptions: clarify.options,
+      selectedOption: choice !== null,
     });
   } catch (error) {
     ctx.logger.error({ err: error }, 'front door failed, using the booking pipeline reply');
@@ -246,7 +262,7 @@ export async function handleInboundTurn(
       reply: {
         text: override.text,
         source: 'DETERMINISTIC_FALLBACK',
-        stage: overriddenProgress.stage,
+        stage: override.stage ?? overriddenProgress.stage,
       },
       progress: overriddenProgress,
       missingInfoStatus: missingInfo.status,
@@ -265,7 +281,7 @@ export async function handleInboundTurn(
   try {
     const photoReply = await buildPhotoReply(
       { prisma: ctx.prisma },
-      { tenantId, message: input.body, resolvedVehicleId },
+      { tenantId, message: body, resolvedVehicleId },
     );
     if (photoReply) {
       replyText = `${photoReply.text}\n\n${replyText}`;
