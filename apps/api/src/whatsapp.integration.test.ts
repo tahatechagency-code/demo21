@@ -499,7 +499,12 @@ describe('WhatsApp webhook — integration', () => {
     // The customer needed several turns to give the details, so Step 4's stall
     // heads-up to staff has already fired; finishing Step 4 must put the journey
     // back on the automatic track and move on to the driver details.
-    const datesReply = await send(from, '25 September to 28 September');
+    // Dates a month ahead, worked out from today so the test never goes stale.
+    const ahead = (days: number) => {
+      const date = new Date(Date.now() + days * 86_400_000);
+      return `${date.getUTCDate()} ${date.toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' })}`;
+    };
+    const datesReply = await send(from, `${ahead(30)} to ${ahead(33)}`);
     expect(datesReply.reply).toMatch(/quote/i);
     expect(datesReply.reply).toMatch(/date of birth/i);
     expect(await testApp.ctx.prisma.journey.findFirst()).toMatchObject({

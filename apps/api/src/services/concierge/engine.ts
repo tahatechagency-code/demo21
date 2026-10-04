@@ -10,6 +10,7 @@ import {
   STAGE_ONE_INTRO,
   STAGE_TWO_INTRO,
   TEAM_HANDOFF_TEXT,
+  answerPolicies,
   answerPolicy,
   brandReply,
   detectPolicyTopic,
@@ -70,6 +71,7 @@ import { buildPhotoReply } from '../vehiclePhotoReplyService.js';
 import { availabilityReply, estimateText } from './estimate.js';
 import { buildFactsText } from './facts.js';
 import { makeOptions, translateReply, understand, type GeminiContext } from './gemini.js';
+import { arabicReply } from './arabic.js';
 import { loadKnowledge, type Knowledge } from './knowledge.js';
 import {
   datedEstimateReply,
@@ -245,6 +247,9 @@ const IDENTITY_RE =
   /\b(?:are you (?:a )?(?:bot|robot|ai|machine|human|real|person)|am i (?:talking|speaking|chatting) (?:to|with)|who are you|who am i (?:talking|speaking)|real person|tum kaun|aap kaun|(?:bot|robot|insaan|insan|aadmi|admi|human|machine|ai)\s+(?:ho|hai|hain)(?:\s+ya\s+\w+)?|(?:insaan|insan|aadmi|admi)\s+ho)\b/i;
 const HOW_ARE_YOU_RE = /\b(?:how are you|how(?:'s| is) it going|kaise ho|kaisa hai|kaise hain|aap kaise)\b/i;
 const WEATHER_RE = /\b(?:weather|temperature|how hot|how cold|raining|rain today|mausam)\b/i;
+const VIP_RE = /\b(?:vip|v\.i\.p|very important (?:person|client|customer)|celebrity|royal family|sheikh|shaikh)\b/i;
+const CORPORATE_RE =
+  /\b(?:corporate|company booking|business account|bulk (?:booking|order)|fleet (?:booking|of|hire)|event fleet|wedding fleet|(?:1[0-9]|[2-9][0-9]|[1-9][0-9]{2})\s+(?:cars|vehicles|gaadi|gaadiyan|gadiyan))\b/i;
 const JOKE_RE = /\b(?:tell me a joke|joke|funny|mazak|chutkula|ek joke)\b/i;
 const WRONG_NUMBER_RE = /\b(?:wrong (?:number|person|chat)|galat (?:number|jagah)|sorry wrong)\b/i;
 const VOICE_RE = /\b(?:voice (?:note|message)|audio (?:note|message)|recording|voice bheja)\b/i;
@@ -299,7 +304,7 @@ function deliveryText(decision: DeliveryDecision, k: Knowledge, input: EngineInp
   const cur = k.profile.currency;
   switch (decision.kind) {
     case 'BRANCH_PICKUP':
-      return `You can pick the car up from our ${decision.branch.name}. Which car and which dates?`;
+      return `You can pick the car up from our ${decision.branch.name}, with no delivery fee, or we can deliver it to you for ${cur} ${k.profile.delivery.feeByEmirate[decision.branch.emirate]}. Which car and which dates?`;
     case 'DELIVERY_POSSIBLE': {
       const km = `${decision.from.estimated ? 'about ' : ''}${decision.from.roadKm} km`;
       const car = input.collected.vehicle ? `${input.collected.vehicle.make} ${input.collected.vehicle.model}` : null;
@@ -466,7 +471,7 @@ function looksLikeBookingDetail(
 const QUESTION_START =
   /^\s*(?:what|which|how|where|when|why|who|whom|whose|can|could|do|does|did|is|are|am|was|will|would|should|may|might|any|kya|kitna|kitne|kaun|kaunsi|konsi|kab|kahan|kaise|kyun|क्या|कितना|ما|هل|كم|كيف|أين|متى)\b/i;
 const QUESTION_CUES =
-  /\b(?:tell me|let me know|want to know|wanted to know|need to know|batao|bataiye|bataye|puchna|pata karna|jaanna)\b|[?؟]/i;
+  /\b(?:tell me|let me know|want to know|wanted to know|need to know|batao|bataiye|bataye|puchna|pata karna|jaanna|kya|kaise|kitna|kitne|kab|kahan|kaun|kaunsi|konsi|hota|hoti|milega|milegi|hoga)\b|[?؟]/i;
 
 /** A question, or a very short topic query ("min age?", "deposit"). A statement about oneself is not one. */
 function isQuestionLike(text: string): boolean {
@@ -537,6 +542,24 @@ async function understandWithRules(base: UnderstandContext): Promise<Decision> {
     };
   }
 
+  // 1b. VIP and corporate / bulk customers are looked after by the senior team, not by a price list.
+  if (VIP_RE.test(original) || CORPORATE_RE.test(original)) {
+    return {
+      kind: 'HANDOFF',
+      reason: EscalationReason.AI_UNABLE_TO_PROCEED,
+      tier: EscalationTier.T3,
+      detail: VIP_RE.test(original) ? 'VIP customer' : 'Corporate or bulk booking',
+      reply:
+        "Thank you for choosing us. VIP and corporate bookings are looked after personally by our senior team, so I've passed yours to them right away. They'll reply here in this chat shortly.",
+    };
+  }
+
+  // 1c. Arabic: the common questions are answered in Arabic straight from the fleet.
+  if (detectLanguage(original) === 'ar') {
+    const arabic = arabicReply(original, k);
+    if (arabic) return { kind: 'REPLY', stage: ConciergeStage.ANSWER, text: arabic, keepEnglish: true };
+  }
+
   // 2. Money, safety, bookings that already exist: always a person.
   const handOff = highRiskHandOff(classification.intent, classification.entities.pickupTime);
   if (handOff && classification.confidence >= 0.5) {
@@ -581,7 +604,7 @@ async function understandWithRules(base: UnderstandContext): Promise<Decision> {
   const kinds = detectFleetQuestion(original);
 
   // 3b. Driver details being collected: anything that is not a question is the answer to what was asked.
-  if (input.progress.stage === 'NEEDS_ELIGIBILITY_INFO' && !isRealQuestion(original)) {
+  if (input.progress.stage === 'NEEDS_ELIGIBILITY_INFO' && !isRealQuestion(original) && !TOTAL_RE.test(original)) {
     return { kind: 'PIPELINE' };
   }
   // 3c. A quote is out: questions about its price, deposit or VAT are answered by the quote itself.
@@ -646,7 +669,12 @@ async function understandWithRules(base: UnderstandContext): Promise<Decision> {
         };
       }
       if (decision.kind === 'BRANCH_PICKUP' && inBooking) return { kind: 'PIPELINE' };
-      return { kind: 'REPLY', stage: ConciergeStage.ANSWER, text: deliveryText(decision, k, input) };
+      // "price of Urus and G63 and delivery to JBR": the prices are answered too, not only the delivery.
+      const priced =
+        mention.kind === 'MODEL' && (kinds.includes('PRICE') || /\b(?:price|rate|kitne|kitna|cost)\b/i.test(original))
+          ? `${priceListReply(mention.models)}\n\n`
+          : '';
+      return { kind: 'REPLY', stage: ConciergeStage.ANSWER, text: `${priced}${deliveryText(decision, k, input)}` };
     }
   }
 
@@ -654,8 +682,11 @@ async function understandWithRules(base: UnderstandContext): Promise<Decision> {
   // "I hold a UAE licence and can provide my passport" is the customer's own details, not a question.
   if (isQuestionLike(original)) {
     if (mention.kind !== 'MODEL' || kinds.length === 0) {
-      const policy = answerPolicy(original, policyContext(k));
-      if (policy) return policyDecision(policy, asNote(input, phase).prefix === true);
+      const policy = answerPolicies(original, policyContext(k));
+      // A question asked together with booking details ("Urus kal Marina, and is card accepted?"): the
+      // answer goes first and the booking steps carry on with whatever is still missing.
+      const alsoBooking = statesDates || (place.kind !== 'UNKNOWN' && mention.kind === 'MODEL');
+      if (policy) return policyDecision(policy, asNote(input, phase).prefix === true || alsoBooking);
     } else {
       const policy = answerPolicy(original, policyContext(k));
       if (
@@ -670,7 +701,7 @@ async function understandWithRules(base: UnderstandContext): Promise<Decision> {
 
   // 6b. Something in this message cannot be used (a date that does not exist or has passed, a place outside
   // the UAE or beyond the delivery rule): say what, instead of describing the car.
-  const problem = await findMessageProblem(ctx, original);
+  const problem = input.progress.stage === 'NEEDS_ELIGIBILITY_INFO' ? null : await findMessageProblem(ctx, original);
   if (problem) {
     const text = await problemText(problem, async () => {
       const decision = await deliveryDecisionFor(ctx, k, input, original);
@@ -855,9 +886,15 @@ async function vehicleReply(
   const msgHasDates = Boolean(own.pickupDate || own.returnDate || own.duration);
 
   // A rental length with no start date ("3 din ke liye"), or in hours (rentals are per day).
-  if (!(own.pickupDate && own.returnDate)) {
+  const pricingAsked = kinds.includes('PRICE') && !/\b(?:ghant\w*|hours?|hrs?)\b/i.test(original);
+  if (!(own.pickupDate && own.returnDate) && !pricingAsked) {
     const named = mention.kind === 'MODEL' && mention.models.length === 1 ? mention.models[0]! : contextModel;
-    const lengthReply = durationReply(original, named, Boolean(dates.pickupDate || own.pickupDate));
+    const lengthReply = durationReply(
+      original,
+      named,
+      Boolean(dates.pickupDate || own.pickupDate),
+      named ? (length) => estimateText(ctx, k, named, length) : undefined,
+    );
     if (lengthReply) return reply(lengthReply, asNote(input, phase));
   }
 
@@ -911,6 +948,16 @@ async function vehicleReply(
       const bothDates = dates.pickupDate && dates.returnDate;
       // Everything is known (car, dates, place): the booking steps run availability, eligibility and the quote.
       if (bothDates && dates.pickupLocation && dates.vehicle) return { kind: 'PIPELINE' };
+      // A car together with a date or a place ("Urus kal Dubai Marina"): a booking begun, so the booking
+      // steps ask only for what is still missing.
+      if (
+        kinds.length === 0 &&
+        !days &&
+        !bothDates &&
+        (own.pickupDate || own.returnDate || matchLocation(message, k.profile).kind !== 'UNKNOWN')
+      ) {
+        return { kind: 'PIPELINE' };
+      }
       // A car named again while a booking is already being filled in carries on with that booking.
       if (
         phase === ConversationPhase.COLLECTING &&

@@ -124,6 +124,35 @@ async function buildChatState(
   };
 }
 
+/** The most of one message that is read; the rest of a very long paste is ignored, never an error. */
+export const MAX_CHAT_MESSAGE_CHARS = 1000;
+
+/** A message with nothing in it: a friendly nudge, nothing stored, no pipeline run. */
+async function emptyMessageReply(
+  ctx: AppContext,
+  tenantId: TenantId,
+  sessionId: string,
+): Promise<SendChatMessageResponse> {
+  const conversations = await listRecentConversationsForCustomer(
+    ctx.prisma,
+    tenantId,
+    CHANNEL,
+    customerRefForSession(sessionId),
+    1,
+  );
+  const state = await buildChatState(ctx.prisma, tenantId, conversations[0]?.id ?? null);
+  return {
+    ...state,
+    reply: {
+      id: null,
+      text: 'I did not catch a message there. What can I help you with: a car, dates, a price or delivery?',
+      source: 'TEMPLATE',
+      attachments: [],
+      createdAt: new Date().toISOString(),
+    },
+  };
+}
+
 /**
  * One customer message in the website chat. Runs exactly the same
  * `handleInboundTurn` as WhatsApp and Email — Steps 1-4, the automatic Steps
@@ -145,11 +174,14 @@ export async function sendChatMessage(
     globalPerMin: ctx.config.CHAT_GLOBAL_LIMIT_PER_MIN,
   });
 
+  if (body.message.length === 0) return emptyMessageReply(ctx, tenantId, body.sessionId);
+  const message = body.message.slice(0, MAX_CHAT_MESSAGE_CHARS);
+
   const idempotencyKey = `chat:${body.sessionId}:${body.clientMessageId}`;
   const claimed = await claimIdempotencyKey(ctx.prisma, {
     key: idempotencyKey,
     tenantId,
-    requestHash: createHash('sha256').update(body.message).digest('hex'),
+    requestHash: createHash('sha256').update(message).digest('hex'),
   });
   if (!claimed) {
     const stored = await findIdempotencyKey(ctx.prisma, idempotencyKey);
@@ -161,7 +193,7 @@ export async function sendChatMessage(
     const turn = await handleInboundTurn(ctx, {
       channel: CHANNEL,
       customerRef: customerRefForSession(body.sessionId),
-      body: body.message,
+      body: message,
       requestId,
     });
 

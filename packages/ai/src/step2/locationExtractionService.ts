@@ -113,15 +113,25 @@ export class LocationExtractionService {
   ) {}
 
   async extract(sanitizedText: string): Promise<LocationExtractionOutcome> {
-    const lines = sanitizedText.split('\n').filter((line) => line.trim().length > 0);
+    // The provider is asked ONCE for the whole transcript (it is rate limited per call); its matches are
+    // then dealt out to the message (line) they were found in.
+    const everyCandidate = await this.provider.resolve(sanitizedText);
+    const lines: { text: string; start: number }[] = [];
+    let offset = 0;
+    for (const text of sanitizedText.split('\n')) {
+      if (text.trim().length > 0) lines.push({ text, start: offset });
+      offset += text.length + 1;
+    }
     let pickup: LocationCandidate | null = null;
     let dropoff: LocationCandidate | null = null;
     const ambiguities: Ambiguity[] = [];
     const unsupported: string[] = [];
     const pending = new Map<'pickup' | 'dropoff', OutOfRangeMention>();
 
-    for (const line of lines.length > 0 ? lines : [sanitizedText]) {
-      const candidates = await this.provider.resolve(line);
+    for (const { text: line, start } of lines.length > 0 ? lines : [{ text: sanitizedText, start: 0 }]) {
+      const candidates = everyCandidate
+        .filter((candidate) => candidate.matchIndex >= start && candidate.matchIndex < start + line.length)
+        .map((candidate) => ({ ...candidate, matchIndex: candidate.matchIndex - start }));
       const unmatched = findUnmatchedLocationPhrases(line, candidates);
       const asking = QUESTION_LINE_RE.test(line);
       // A question about another place must not wipe the place the booking already has.

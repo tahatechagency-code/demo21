@@ -1,5 +1,6 @@
 import { levenshteinDistance } from '../step3/levenshtein.js';
-import type { BusinessProfile } from './profile.js';
+import { UAE_PLACES } from './locations.js';
+import { DIAMONDLEASE_BRANCHES, type BusinessProfile } from './profile.js';
 
 /**
  * Step 0 of every message: the whole fleet, held in memory and searched BEFORE anything else.
@@ -381,6 +382,13 @@ function colourIn(text: string, model: FleetModel): string | null {
  * "BMW M3")? Only a known outside model, a model code with a digit, or a capitalised word counts —
  * an ordinary word ("BMW tomorrow", "BMW please") never turns a brand request into a missing car.
  */
+/** Single words that name a UAE place or branch ("Marina", "Sharjah"): never a car model. */
+const PLACE_TOKENS: ReadonlySet<string> = new Set(
+  [...UAE_PLACES.flatMap((place) => place.aliases), ...DIAMONDLEASE_BRANCHES.flatMap((branch) => branch.aliases)]
+    .map((alias) => alias.toLowerCase())
+    .filter((alias) => !alias.includes(' ')),
+);
+
 function isModelLikeToken(token: string, originalWords: string[]): boolean {
   if (GENERIC_WORDS.has(token)) return false;
   if (/^\d+(?:st|nd|rd|th|am|pm)$/.test(token)) return false;
@@ -442,7 +450,7 @@ export function resolveVehicleMention(message: string, fleet: FleetKnowledge): V
       .trim()
       .split(' ')
       .filter(Boolean);
-    const extra = after.find((token) => isModelLikeToken(token, originalWords));
+    const extra = after.find((token) => !PLACE_TOKENS.has(token) && isModelLikeToken(token, originalWords));
     // "Lamborghini Urrus": a misspelt model of this brand is that model, not a missing car.
     const misspeltModel =
       extra !== undefined &&

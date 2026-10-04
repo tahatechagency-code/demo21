@@ -84,7 +84,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'greeting': { say: ['hi'], match: [/Welcome to Diamondlease/] },
   'greeting formal': { say: ['Hello, good morning'], match: [/Welcome to Diamondlease/] },
   'greeting salam': { say: ['salam'], match: [/Welcome to Diamondlease/] },
-  'greeting arabic': { say: ['مرحبا'], match: [/Welcome to Diamondlease/] },
+  'greeting arabic': { say: ['مرحبا'], match: [/[؀-ۿ]/, /Diamondlease/] },
   'greeting hindi': { say: ['नमस्ते'], match: [/Welcome to Diamondlease/] },
   'hinglish want car': { say: ['mujhe gaadi chahiye'], match: [/Happy to help you rent a car/, /Lamborghini Urus/] },
   'english want car': { say: ['I want to rent a car'], match: [/Could you please confirm/, /which vehicle/] },

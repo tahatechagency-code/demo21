@@ -63,7 +63,7 @@ const patterns: [PolicyTopic, RegExp][] = [
   ['PAYMENT_LINK', /\b(?:payment|pay) link\b|\blink (?:bhej\w*|send|please)\b|\bsend (?:me )?(?:the |a )?(?:payment )?link\b/i],
   ['LATE_RETURN', /\blate (?:return|fee|fees|charge|charges|drop|hand ?back)\b|\b(?:return|returning|drop) (?:me |it |the car )?late\b|\bovertime\b|\bgrace period\b|\bextra (?:hour|day)s?\b|\bdelay\w* (?:in )?return/i],
   ['BOOKING_PROCESS', /\bhow (?:do|can|to) (?:i |we )?(?:book|reserve|confirm)\b|\b(?:booking|reservation) (?:confirm\w*|process|procedure|kaise)\b|\b(?:book|booking|confirm)\w* kaise\b|\bhow does (?:it|booking|renting) work\b|\bconfirm kaise\b/i],
-  ['PAYMENT', /\b(?:payment methods?|how (?:do|can) i pay|pay(?:ing)? (?:by|with|in)|accept\w* (?:cash|card|visa|mastercard|crypto|bitcoin|cheque|apple pay)|cash|credit card|debit card|bank transfer|crypto|bitcoin|payment link|installments?|tabby|tamara)\b/i],
+  ['PAYMENT', /\b(?:payment methods?|how (?:do|can) i pay|pay(?:ing)? (?:by|with|in)|accept\w* (?:cash|card|visa|mastercard|crypto|bitcoin|cheque|apple pay)|cash|credit card|debit card|bank transfer|crypto|bitcoin|payment link|installments?|tabby|tamara|payments?|(?:card|cash) (?:se|pe|par|chalega|accept))\b/i],
   ['DELIVERY_FEES', /\bhow much\b.{0,25}\b(?:delivery|deliver|collection|drop ?off)\b|\b(?:delivery|deliver|collection|collect)\b.{0,30}\b(?:fee|fees|charge|charges|cost|price|how much|free)\b|\b(?:fee|fees|charge|charges|cost)\b.{0,25}\b(?:delivery|deliver|drop|pickup|collection)\b/i],
   ['VAT', /\bvat\b|\btax(?:es)?\b|\bincluding tax\b|\binclusive\b|\bexclusive\b/i],
   ['CURRENCY', /\b(?:currency|dollars?|usd|euros?|eur|pounds?|gbp|inr|rupees?)\b/i],
@@ -89,6 +89,20 @@ const FAQ_TOPIC_FOR: Partial<Record<PolicyTopic, FaqTopicValue>> = {
   DEPOSIT: FaqTopic.DEPOSIT,
   BRANCHES: FaqTopic.LOCATION,
 };
+
+/** Every policy topic a message asks about, in the order of the rules above (no duplicates). */
+export function detectPolicyTopics(message: string): PolicyTopic[] {
+  const found: PolicyTopic[] = [];
+  for (const [topic, pattern] of patterns) {
+    if (pattern.test(message) && !found.includes(topic)) found.push(topic);
+  }
+  if (found.length === 0) {
+    const generic = detectPolicyTopic(message);
+    if (generic) found.push(generic);
+  }
+  // "payment link" asks about the link, not about which payment methods are accepted.
+  return found.includes('PAYMENT_LINK') ? found.filter((topic) => topic !== 'PAYMENT') : found;
+}
 
 /** The policy topic a message asks about, or null. */
 export function detectPolicyTopic(message: string): PolicyTopic | null {
@@ -152,8 +166,33 @@ function minAgeLine(ctx: PolicyContext): string {
 }
 
 /** Answers from the owner's terms and the fleet rows; `null` when the message is not a policy question. */
-export function answerPolicy(message: string, ctx: PolicyContext): PolicyAnswer | null {
-  const topic = detectPolicyTopic(message);
+/**
+ * Answers every topic a message asks about (up to `max`) in one reply. Facts the owner has not supplied
+ * are gathered into ONE honest line instead of repeating the same "I do not have it" sentence.
+ */
+export function answerPolicies(message: string, ctx: PolicyContext, max = 3): PolicyAnswer | null {
+  const answers = detectPolicyTopics(message)
+    .slice(0, max)
+    .map((topic) => answerPolicy(message, ctx, topic))
+    .filter((answer): answer is PolicyAnswer => answer !== null);
+  if (answers.length === 0) return null;
+  const known = answers.filter((answer) => answer.kind === 'ANSWER');
+  const missing = answers.filter((answer) => answer.kind === 'UNCONFIGURED');
+  if (missing.length === 0) {
+    return { kind: 'ANSWER', topic: known[0]!.topic, text: known.map((answer) => answer.text).join('\n\n') };
+  }
+  if (known.length === 0 && missing.length === 1) return missing[0]!;
+  const labels = joinList(missing.map((answer) => TOPIC_LABEL[answer.topic]));
+  const honest = `I do not have ${labels} confirmed, and I would rather not guess. Reply TEAM and I will bring in a colleague to confirm it right here in this chat.`;
+  return {
+    kind: known.length > 0 ? 'ANSWER' : 'UNCONFIGURED',
+    topic: answers[0]!.topic,
+    text: [...known.map((answer) => answer.text), honest].join('\n\n'),
+  };
+}
+
+export function answerPolicy(message: string, ctx: PolicyContext, only?: PolicyTopic): PolicyAnswer | null {
+  const topic = only ?? detectPolicyTopic(message);
   if (!topic) return null;
   const { terms, delivery } = ctx.profile;
   const configured = FAQ_TOPIC_FOR[topic] ? ctx.configured.get(FAQ_TOPIC_FOR[topic]!) : undefined;

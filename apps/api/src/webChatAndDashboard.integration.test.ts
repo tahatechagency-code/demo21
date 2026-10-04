@@ -185,14 +185,6 @@ describe('web chat + dashboard surfaces — integration', () => {
         { sessionId: 'abc', clientMessageId: randomUUID(), message: 'hi' },
       ],
       [
-        'an empty message',
-        { sessionId: randomUUID(), clientMessageId: randomUUID(), message: '   ' },
-      ],
-      [
-        'a message over 1000 characters',
-        { sessionId: randomUUID(), clientMessageId: randomUUID(), message: 'x'.repeat(1001) },
-      ],
-      [
         'an unknown extra field',
         { sessionId: randomUUID(), clientMessageId: randomUUID(), message: 'hi', role: 'STAFF' },
       ],
@@ -202,6 +194,35 @@ describe('web chat + dashboard surfaces — integration', () => {
         method: 'POST',
         url: '/v1/chat/messages',
         payload,
+      });
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('answers an empty message with a friendly nudge instead of an error', async () => {
+      const response = await testApp.app.inject({
+        method: 'POST',
+        url: '/v1/chat/messages',
+        payload: { sessionId: randomUUID(), clientMessageId: randomUUID(), message: '   ' },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().reply.text).toMatch(/did not catch a message/i);
+    });
+
+    it('reads a very long message up to the limit instead of rejecting it', async () => {
+      const response = await testApp.app.inject({
+        method: 'POST',
+        url: '/v1/chat/messages',
+        payload: { sessionId: randomUUID(), clientMessageId: randomUUID(), message: 'x'.repeat(2500) },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().reply.text.length).toBeGreaterThan(10);
+    });
+
+    it('still rejects a message beyond the hard cap', async () => {
+      const response = await testApp.app.inject({
+        method: 'POST',
+        url: '/v1/chat/messages',
+        payload: { sessionId: randomUUID(), clientMessageId: randomUUID(), message: 'x'.repeat(10_001) },
       });
       expect(response.statusCode).toBe(400);
     });

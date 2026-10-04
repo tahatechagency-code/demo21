@@ -262,13 +262,39 @@ export class VehicleIntentService {
       // A car we do not carry is reported as such, never swapped for another model of the same brand.
       const outside = resolveVehicleMention(lines[i] as string, fleet);
       if (outside.kind === 'NOT_IN_FLEET') return { candidates: [], rawMention: outside.mention };
-      const proposal = this.proposeForSingleMessage(lines[i] as string, lexicon);
+      const proposal = this.preferLastNamedWhenChanging(
+        lines[i] as string,
+        this.proposeForSingleMessage(lines[i] as string, lexicon),
+      );
       if (proposal.candidates.length > 0) {
         return this.narrowByEarlierMention(proposal, lines.slice(0, i), lexicon);
       }
     }
 
     return { candidates: [], rawMention: this.findGenericVehiclePhrase(text) };
+  }
+
+  /**
+   * "Urus se G63 change karo": two cars in one message together with change wording mean the customer is
+   * switching to the one named LAST. Without that wording two cars stay a genuine ambiguity.
+   */
+  private preferLastNamedWhenChanging(line: string, proposal: VehicleIntentProposal): VehicleIntentProposal {
+    const cars = new Map<string, VehicleMentionCandidate[]>();
+    for (const candidate of proposal.candidates) {
+      const key = `${candidate.make} ${candidate.model}`;
+      cars.set(key, [...(cars.get(key) ?? []), candidate]);
+    }
+    if (cars.size < 2 || !/\b(?:change|badal\w*|instead|replace|switch|rather|jagah|kar ?do|karo)\b/i.test(line)) {
+      return proposal;
+    }
+    const lower = line.toLowerCase();
+    let best: { key: string; at: number } | null = null;
+    for (const key of cars.keys()) {
+      const model = key.slice(key.indexOf(' ') + 1).toLowerCase();
+      const at = lower.lastIndexOf(model);
+      if (at >= 0 && (!best || at > best.at)) best = { key, at };
+    }
+    return best ? { candidates: cars.get(best.key)!, rawMention: null } : proposal;
   }
 
   /**
