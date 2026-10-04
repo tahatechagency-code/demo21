@@ -38,7 +38,31 @@ export class VehicleValidationService {
     let worstSimilarity = 1;
     let alternatives: Vehicle[] = [];
 
-    if (proposal.candidates.length === 0) {
+    // One model offered in several colours ("Cullinan" in Black and White) is ONE choice of car, not
+    // an ambiguity: the model is resolved now and the colour stays open until the customer names one.
+    let candidates = proposal.candidates;
+    if (
+      candidates.length > 1 &&
+      candidates.every(
+        (candidate) =>
+          candidate.make === candidates[0]!.make && candidate.model === candidates[0]!.model,
+      ) &&
+      (candidates[0]!.matchType === VehicleMatchType.EXACT_MODEL ||
+        candidates[0]!.matchType === VehicleMatchType.FUZZY_MATCH ||
+        candidates[0]!.matchType === VehicleMatchType.BRAND_ONLY)
+    ) {
+      const bookable = candidates.find((candidate) =>
+        lookup.matchedVehicles.some(
+          (vehicle) =>
+            vehicle.id === candidate.lexiconEntryId &&
+            vehicle.active &&
+            vehicle.availabilityStatus === 'AVAILABLE',
+        ),
+      );
+      candidates = [bookable ?? candidates[0]!];
+    }
+
+    if (candidates.length === 0) {
       if (proposal.rawMention) {
         validationErrors.push({
           field: 'vehicle',
@@ -57,10 +81,10 @@ export class VehicleValidationService {
       }
       alternatives = lookup.fallbackAlternatives;
     } else {
-      matchType = proposal.candidates[0]!.matchType;
-      worstSimilarity = Math.min(...proposal.candidates.map((candidate) => candidate.similarity));
+      matchType = candidates[0]!.matchType;
+      worstSimilarity = Math.min(...candidates.map((candidate) => candidate.similarity));
 
-      if (proposal.candidates.length > 1) {
+      if (candidates.length > 1) {
         const code =
           matchType === VehicleMatchType.BRAND_ONLY
             ? ('BRAND_ONLY_MULTIPLE_MATCHES' as const)
@@ -72,13 +96,13 @@ export class VehicleValidationService {
         ambiguities.push({
           field: 'vehicle',
           code,
-          message: describeChoices(lookup.matchedVehicles, proposal.candidates.length),
-          raw: proposal.candidates[0]!.matchedText,
+          message: describeChoices(lookup.matchedVehicles, candidates.length),
+          raw: candidates[0]!.matchedText,
         });
         status = VehicleDeterminationStatus.NEEDS_CLARIFICATION;
         alternatives = lookup.matchedVehicles;
       } else {
-        const candidate = proposal.candidates[0]!;
+        const candidate = candidates[0]!;
         const matched = lookup.matchedVehicles.find(
           (vehicle) => vehicle.id === candidate.lexiconEntryId,
         );

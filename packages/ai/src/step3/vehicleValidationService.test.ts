@@ -263,3 +263,53 @@ describe('VehicleValidationService', () => {
     expect(result.alternatives.some((v) => v.model === 'Chiron')).toBe(false);
   });
 });
+
+describe('VehicleValidationService: one model in several colours is one choice', () => {
+  const BLACK = makeVehicle({ id: CULLINAN_ID, make: 'Rolls-Royce', model: 'Cullinan', color: 'Black' });
+  const WHITE = makeVehicle({
+    id: '66666666-6666-6666-6666-666666666666',
+    make: 'Rolls-Royce',
+    model: 'Cullinan',
+    color: 'White',
+  });
+  const cand = (v: Vehicle) =>
+    candidate({ lexiconEntryId: v.id, make: v.make, model: v.model, color: v.color });
+
+  it('resolves the model instead of asking for a colour first', () => {
+    const result = makeService().validate({
+      proposal: { candidates: [cand(BLACK), cand(WHITE)], rawMention: null },
+      lookup: { matchedVehicles: [BLACK, WHITE], fallbackAlternatives: [] },
+      promptInjectionDetected: false,
+    });
+    expect(result.status).toBe('RESOLVED');
+    expect(result.resolvedVehicle?.model).toBe('Cullinan');
+  });
+
+  it('prefers a colour that can actually be booked', () => {
+    const maintenance = { ...BLACK, availabilityStatus: 'MAINTENANCE' as const };
+    const result = makeService().validate({
+      proposal: { candidates: [cand(BLACK), cand(WHITE)], rawMention: null },
+      lookup: { matchedVehicles: [maintenance, WHITE], fallbackAlternatives: [] },
+      promptInjectionDetected: false,
+    });
+    expect(result.resolvedVehicle?.id).toBe(WHITE.id);
+  });
+
+  it('still asks when two different models match', () => {
+    const result = makeService().validate({
+      proposal: {
+        candidates: [
+          cand(BLACK),
+          candidate({ lexiconEntryId: HURACAN_ID, make: 'Lamborghini', model: 'Huracan' }),
+        ],
+        rawMention: null,
+      },
+      lookup: {
+        matchedVehicles: [BLACK, makeVehicle({ id: HURACAN_ID, model: 'Huracan' })],
+        fallbackAlternatives: [],
+      },
+      promptInjectionDetected: false,
+    });
+    expect(result.status).toBe('NEEDS_CLARIFICATION');
+  });
+});

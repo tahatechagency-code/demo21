@@ -22,6 +22,10 @@ interface UnmatchedPhrases {
   unrecognized: string[];
 }
 
+/** A weekday, month or time word that follows "to/from/at" in a date phrase ("Monday to Thursday") is never a place. */
+const NOT_A_PLACE_WORD =
+  /^(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec|today|tomorrow|tonight|noon|midnight|morning|evening|afternoon|night|weekend|week|month|day|days)$/i;
+
 function findUnmatchedLocationPhrases(
   text: string,
   resolved: LocationCandidate[],
@@ -35,6 +39,7 @@ function findUnmatchedLocationPhrases(
   for (const match of text.matchAll(LOCATION_PHRASE_RE)) {
     const phrase = match[1];
     if (!phrase) continue;
+    if (phrase.split(/\s+/).every((word) => NOT_A_PLACE_WORD.test(word))) continue;
     const phraseStart = match.index + match[0].length - phrase.length;
     const phraseRange: TextRange = { start: phraseStart, end: phraseStart + phrase.length };
     const alreadyResolved = resolvedRanges.some((range) => rangesOverlap(range, phraseRange));

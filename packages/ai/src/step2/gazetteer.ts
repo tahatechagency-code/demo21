@@ -1,3 +1,4 @@
+import { extraGazetteerEntries } from './gazetteerExtra.js';
 import { LocationType, type LocationTypeValue } from '@ai-concierge/domain';
 
 export interface GazetteerEntry {
@@ -16,7 +17,7 @@ export interface GazetteerEntry {
  * itself has no UAE-specific logic, it just asks whatever `LocationProvider`
  * it was given.
  */
-export const UAE_GAZETTEER: GazetteerEntry[] = [
+const CORE_GAZETTEER: GazetteerEntry[] = [
   {
     aliases: ['dubai international airport', 'dxb airport', 'dxb'],
     normalized: 'Dubai International Airport',
@@ -121,6 +122,12 @@ export const UAE_GAZETTEER: GazetteerEntry[] = [
     timezone: 'Asia/Dubai',
     locationType: LocationType.CITY_AREA,
   },
+];
+
+/** Core entries plus every UAE area and confirmed branch the delivery check knows. */
+export const UAE_GAZETTEER: GazetteerEntry[] = [
+  ...CORE_GAZETTEER,
+  ...extraGazetteerEntries(CORE_GAZETTEER),
 ];
 
 /**

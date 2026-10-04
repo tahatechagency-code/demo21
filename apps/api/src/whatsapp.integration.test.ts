@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { createMissingInfoCheck, createVehicle } from '@ai-concierge/db';
+import { createMissingInfoCheck, createVehicle, createVehicleUnit } from '@ai-concierge/db';
 import { MissingInfoStatus } from '@ai-concierge/domain';
 import { seedTestTenants, truncateAllTables, TEST_TENANT_ID } from '@ai-concierge/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -54,7 +54,7 @@ describe('WhatsApp webhook — integration', () => {
     await truncateAllTables(testApp.ctx.prisma);
     await seedTestTenants(testApp.ctx.prisma);
     fakeProvider.sent.length = 0;
-    await createVehicle(testApp.ctx.prisma, {
+    const urus = await createVehicle(testApp.ctx.prisma, {
       tenantId: TEST_TENANT_ID,
       make: 'Lamborghini',
       model: 'Urus',
@@ -66,7 +66,7 @@ describe('WhatsApp webhook — integration', () => {
       transmission: 'AUTOMATIC',
       pricingProfile: { currency: 'AED', dailyRate: 3500 },
     });
-    await createVehicle(testApp.ctx.prisma, {
+    const ferrari = await createVehicle(testApp.ctx.prisma, {
       tenantId: TEST_TENANT_ID,
       make: 'Ferrari',
       model: '812',
@@ -78,6 +78,9 @@ describe('WhatsApp webhook — integration', () => {
       transmission: 'AUTOMATIC',
       pricingProfile: { currency: 'AED', dailyRate: 4500 },
     });
+    for (const [vehicle, ref] of [[urus, 'URUS-0'], [ferrari, 'F812-0']] as const) {
+      await createVehicleUnit(testApp.ctx.prisma, { tenantId: TEST_TENANT_ID, vehicleId: vehicle.id, unitRef: ref });
+    }
   });
 
   let turnSeq = 0;
@@ -399,7 +402,7 @@ describe('WhatsApp webhook — integration', () => {
     expect(greetingResponse.statusCode).toBe(200);
     expect(fakeProvider.sent).toHaveLength(1);
     const greetingReply = fakeProvider.sent[0]!.body;
-    expect(greetingReply).toMatch(/let us know if you'd like to book a car/i);
+    expect(greetingReply).toMatch(/Welcome to Diamondlease/i);
 
     // This is the exact reported bug: a bare "Yes" has no booking keyword on
     // its own, and neither does "Hiii\nYes" as an accumulated transcript —
@@ -417,7 +420,7 @@ describe('WhatsApp webhook — integration', () => {
     const confirmationReply = fakeProvider.sent[1]!.body;
 
     expect(confirmationReply).not.toBe(greetingReply);
-    expect(confirmationReply).not.toMatch(/let us know if you'd like to book a car/i);
+    expect(confirmationReply).not.toMatch(/Welcome to Diamondlease/i);
 
     // Still one preserved conversation, and Step 1 now recognized the
     // booking confirmation for the "Yes" message specifically.
@@ -438,15 +441,17 @@ describe('WhatsApp webhook — integration', () => {
     // "Lamborghini Urus" alone carries no BOOKING_REQUEST keyword — only
     // entities (see enquiryService.ts's hasBookingShapedEntities).
     const vehicleReply = await send(from, 'Lamborghini Urus');
+    // The car's details come from the fleet, followed by the booking question that is still open.
+    expect(vehicleReply.reply).toMatch(/Yes, we have the Lamborghini Urus/);
     expect(vehicleReply.reply).toMatch(/pick up the car/i);
     expect(vehicleReply.reply).toMatch(/return the car/i);
     expect(vehicleReply.reply).not.toMatch(/which vehicle/i);
 
-    // "OK" adds no new information, so it must re-ask exactly the same
-    // still-pending question — never advance, never reset, never repeat an
-    // already-answered question (the vehicle).
+    // "OK" adds no new information, so the still-pending question is asked again —
+    // never advanced, never reset, and the answered vehicle is not asked for again.
     const unclearReply = await send(from, 'OK');
-    expect(unclearReply.reply).toBe(vehicleReply.reply);
+    expect(unclearReply.reply).toMatch(/pick up the car/i);
+    expect(unclearReply.reply).not.toMatch(/which vehicle/i);
 
     const conversations = await testApp.ctx.prisma.conversation.count({
       where: { customerRef: from },
@@ -458,9 +463,9 @@ describe('WhatsApp webhook — integration', () => {
     const from = '971507000007';
     const message = [
       'Vehicle: Lamborghini Urus',
-      'Pickup Date: September 25, 2026',
+      'Pickup Date: November 25, 2026',
       'Pickup Time: 10:00 AM',
-      'Return Date: September 28, 2026',
+      'Return Date: November 28, 2026',
       'Return Time: 10:00 AM',
       'Pickup Location: Dubai International Airport (DXB), Dubai',
     ].join('\n');
@@ -468,7 +473,7 @@ describe('WhatsApp webhook — integration', () => {
     const { reply } = await send(from, message);
     expect(reply).toMatch(/Lamborghini Urus/);
     // Step 4 is complete, so the concierge moves straight on to the driver details Step 5 needs.
-    expect(reply).toMatch(/25 Sep 2026 to 28 Sep 2026/);
+    expect(reply).toMatch(/25 Nov 2026 to 28 Nov 2026/);
     expect(reply).toMatch(/date of birth/i);
     expect(reply).toMatch(/Dubai/);
     expect(reply).toMatch(/quote/i);
@@ -518,9 +523,23 @@ describe('WhatsApp webhook — integration', () => {
     // Vehicle resolved, dates + location still pending.
     const pendingReply = await send(from, 'Lamborghini Urus');
 
+    // A genuinely unclear message gets the "did you mean" options (built from the chat so far),
+    // never the generic greeting and never a wrong guess.
     const unclearReply = await send(from, 'hmm not sure what you mean');
-    expect(unclearReply.reply).toBe(pendingReply.reply);
-    expect(unclearReply.reply).not.toMatch(/let us know if you'd like to book a car/i);
+    expect(unclearReply.reply).toMatch(/Did you mean one of these/);
+    expect(unclearReply.reply).toMatch(/PLEASE REPEAT QUESTION IN DETAIL/);
+    expect(unclearReply.reply).toMatch(/Lamborghini Urus/);
+    expect(pendingReply.reply).toMatch(/pick up the car/i);
+    expect(unclearReply.reply).not.toMatch(/Welcome to Diamondlease/i);
+
+    // A bare "ok" does not choose between options: the same options are put again.
+    const okReply = await send(from, 'ok');
+    expect(okReply.reply).toMatch(/Please reply with the number/);
+
+    // Choosing an option is understood on its own terms and answered from the fleet.
+    const picked = await send(from, '2');
+    expect(picked.reply).toMatch(/Lamborghini Urus/);
+    expect(picked.reply).not.toMatch(/Did you mean one of these/);
   });
 
   it('treats a later, different vehicle mention as a change of mind, not an ambiguity', async () => {
@@ -550,8 +569,12 @@ describe('WhatsApp webhook — integration', () => {
     // dedicated answer for; the important behavior is that it does not
     // discard the in-progress booking and fall back to the generic reply.
     const sideQuestionReply = await send(from, 'What documents do I need to rent a car?');
-    expect(sideQuestionReply.reply).toBe(pendingReply.reply);
-    expect(sideQuestionReply.reply).not.toMatch(/let us know if you'd like to book a car/i);
+    // The question is answered from the owner's terms, then the open booking question follows.
+    expect(sideQuestionReply.reply).toMatch(/passport/i);
+    expect(sideQuestionReply.reply).toMatch(/UAE driving licence/i);
+    expect(sideQuestionReply.reply).toMatch(/pick up the car/i);
+    expect(pendingReply.reply).toMatch(/pick up the car/i);
+    expect(sideQuestionReply.reply).not.toMatch(/Welcome to Diamondlease/i);
   });
 
   it('hands an explicit cancellation mid-booking to a person and keeps the conversation', async () => {

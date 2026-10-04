@@ -4,6 +4,7 @@ import {
   createEscalationCase,
   createJourney,
   findActiveUsersByRole,
+  findUserById,
   findOpenEscalationCaseForJourney,
   findJourneyByConversationId,
   findJourneyTransitions,
@@ -649,4 +650,40 @@ export async function resumeStalledJourney(
     });
     return result.journey;
   });
+}
+
+export interface NotifyCustomerMessageInput {
+  tenantId: TenantId;
+  conversationId: string;
+}
+
+/**
+ * The customer wrote again while a person owns the case. The concierge keeps answering in the same
+ * chat, but the person must not be left to discover the message on their own: every new customer
+ * message pages whoever holds the case (the assigned worker, else the tier on call). Never throws and
+ * never blocks the reply — a failed page is only logged by the caller; the message is on the dashboard
+ * either way. Returns whether anyone was paged.
+ */
+export async function notifyOpenCaseOfCustomerMessage(
+  deps: JourneyServiceDeps,
+  input: NotifyCustomerMessageInput,
+): Promise<boolean> {
+  const journey = await findJourneyByConversationId(deps.prisma, input.tenantId, input.conversationId);
+  if (!journey || journey.state !== JourneyState.ESCALATED) return false;
+  const open = await findOpenEscalationCaseForJourney(deps.prisma, input.tenantId, journey.id);
+  if (!open) return false;
+
+  const body = `AI Concierge: the customer wrote again in an open case (${open.id}). Open the dashboard chat to reply.`;
+  const assigned = open.assignedToUserId
+    ? await findUserById(deps.prisma, input.tenantId, open.assignedToUserId)
+    : null;
+  const recipients =
+    assigned && assigned.status === 'ACTIVE'
+      ? [assigned]
+      : await findActiveUsersByRole(deps.prisma, input.tenantId, TIER_TO_ROLE[open.tier]);
+  const phones = recipients
+    .map((user) => user.phone)
+    .filter((phone): phone is string => Boolean(phone));
+  await Promise.all(phones.map((phone) => deps.notificationProvider.sendSms(phone, body)));
+  return phones.length > 0;
 }

@@ -3,7 +3,14 @@ import {
   type VehicleCategoryValue,
   type VehicleMatchTypeValue,
 } from '@ai-concierge/domain';
+import {
+  buildFleetKnowledge,
+  expandVehicleAliases,
+  resolveVehicleMention,
+  type FleetKnowledge,
+} from '../concierge/fleetKnowledge.js';
 import { LOCATION_KEYWORDS } from '../lexicon.js';
+import { MONTHS } from '../shared/monthNames.js';
 import { CATEGORY_KEYWORDS } from './categoryKeywords.js';
 import { COLOR_KEYWORDS } from './colorKeywords.js';
 import { similarityRatio } from './levenshtein.js';
@@ -111,6 +118,34 @@ function isLocationShapedPhrase(phrase: string): boolean {
 }
 
 /**
+ * Words that are capitalised or sit after "book/need/want" in an ordinary booking message but never
+ * name a car: months, weekdays, places, the generic words for a car itself. A phrase made only of
+ * these ("November", "UAE", "car") is never reported as an unknown vehicle.
+ */
+const NOT_A_VEHICLE_WORDS = new Set([
+  ...Object.keys(MONTHS),
+  'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+  'today', 'tomorrow', 'tonight', 'next', 'this', 'week', 'weekend', 'month', 'day', 'days',
+  'uae', 'dubai', 'abu', 'dhabi', 'sharjah', 'ajman', 'fujairah', 'airport', 'hotel', 'marina',
+  'car', 'cars', 'vehicle', 'vehicles', 'ride', 'rental', 'rent', 'hire', 'booking', 'one', 'it',
+  'a', 'an', 'the', 'some', 'any', 'please', 'pls', 'thanks', 'thank', 'you', 'hello', 'hi', 'hey',
+  'yes', 'no', 'ok', 'okay', 'sir', 'madam', 'bro', 'am', 'pm', 'aed', 'for', 'from', 'to', 'in',
+  'on', 'at', 'with', 'and', 'or', 'me', 'my', 'we', 'us', 'now', 'asap', 'soon', 'later',
+  'cheap', 'best', 'good', 'new', 'nice', 'luxury', 'something', 'anything', 'vip', 'driver',
+]);
+
+function isNotAVehiclePhrase(phrase: string): boolean {
+  const words = phrase
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  return (
+    words.length === 0 ||
+    words.every((word) => NOT_A_VEHICLE_WORDS.has(word) || /^\d+(?:st|nd|rd|th)?$/.test(word))
+  );
+}
+
+/**
  * Multi-word capitalized phrases anywhere, plus single capitalized words
  * that are *not* the first word of their message — sentence-initial
  * capitalization is grammatically mandatory in English and carries
@@ -121,7 +156,9 @@ function extractVehicleShapedPhrases(text: string): string[] {
   const singleWord = [...text.matchAll(SINGLE_CAPITALIZED_WORD_RE)]
     .filter((match) => !isLineInitial(text, match.index))
     .map((match) => match[0]);
-  return [...multiWord, ...singleWord].filter((phrase) => !isLocationShapedPhrase(phrase));
+  return [...multiWord, ...singleWord].filter(
+    (phrase) => !isLocationShapedPhrase(phrase) && !isNotAVehiclePhrase(phrase),
+  );
 }
 
 /**
@@ -135,7 +172,7 @@ function extractCuedPhrases(text: string): string[] {
     .map((match) => match[1])
     .filter((phrase): phrase is string => Boolean(phrase));
   const generic = GENERIC_MENTION_RE.exec(text)?.[1]?.trim();
-  if (generic) cued.push(generic);
+  if (generic && !isNotAVehiclePhrase(generic)) cued.push(generic);
   return cued;
 }
 
@@ -147,8 +184,39 @@ function extractCuedPhrases(text: string): string[] {
  */
 function extractFuzzyCandidatePhrases(text: string): string[] {
   return [...extractVehicleShapedPhrases(text), ...extractCuedPhrases(text)].filter(
-    (phrase) => !isLocationShapedPhrase(phrase),
+    (phrase) => !isLocationShapedPhrase(phrase) && !isNotAVehiclePhrase(phrase),
   );
+}
+
+const fleetCache = new WeakMap<VehicleLexiconEntry[], FleetKnowledge>();
+
+/** The lexicon as a searchable fleet (every row counts here; inactive ones are rejected later by validation). */
+function fleetFromLexicon(lexicon: VehicleLexiconEntry[]): FleetKnowledge {
+  const cached = fleetCache.get(lexicon);
+  if (cached) return cached;
+  const built = buildFleetKnowledge(
+    lexicon.map((entry) => ({
+      id: entry.id,
+      make: entry.make,
+      model: entry.model,
+      color: entry.color,
+      category: entry.category,
+      luxuryTier: '',
+      seats: 0,
+      luggage: 0,
+      transmission: '',
+      dailyRate: 0,
+      currency: '',
+      active: true,
+      availabilityStatus: 'AVAILABLE',
+      totalUnits: 0,
+      bookedUnits: 0,
+      maintenanceUnits: 0,
+    })),
+    '',
+  );
+  fleetCache.set(lexicon, built);
+  return built;
 }
 
 /**
@@ -165,7 +233,13 @@ export class VehicleIntentService {
   propose(sanitizedText: string, lexicon: VehicleLexiconEntry[]): VehicleIntentProposal {
     // Strip the sanitizer's injection placeholder so it can never be
     // mistaken for a capitalized "vehicle-shaped" phrase (e.g. "REMOVED").
-    const text = sanitizedText.replace(/\[REMOVED\]/g, ' ').trim();
+    const cleaned = sanitizedText.replace(/\[REMOVED\]/g, ' ').trim();
+    // Spoken names ("merc", "g63", "lambo", "s class") become the fleet's own names before any matching.
+    const fleet = fleetFromLexicon(lexicon);
+    const text = cleaned
+      .split('\n')
+      .map((line) => expandVehicleAliases(line, fleet))
+      .join('\n');
 
     // `text` may be an accumulated multi-message transcript, one message per
     // line (see `buildAccumulatedTranscript`, this method's only production
@@ -185,6 +259,9 @@ export class VehicleIntentService {
     // ambiguity — see `proposeForSingleMessage`.
     const lines = text.split('\n');
     for (let i = lines.length - 1; i >= 0; i -= 1) {
+      // A car we do not carry is reported as such, never swapped for another model of the same brand.
+      const outside = resolveVehicleMention(lines[i] as string, fleet);
+      if (outside.kind === 'NOT_IN_FLEET') return { candidates: [], rawMention: outside.mention };
       const proposal = this.proposeForSingleMessage(lines[i] as string, lexicon);
       if (proposal.candidates.length > 0) {
         return this.narrowByEarlierMention(proposal, lines.slice(0, i), lexicon);
@@ -226,10 +303,10 @@ export class VehicleIntentService {
     lexicon: VehicleLexiconEntry[],
   ): VehicleIntentProposal {
     const exact = this.matchExactModel(text, lexicon);
-    if (exact.length > 0) return { candidates: exact, rawMention: null };
+    if (exact.length > 0) return { candidates: this.narrowToNamedColour(text, exact), rawMention: null };
 
     const brand = this.matchBrandOnly(text, lexicon);
-    if (brand.length > 0) return { candidates: brand, rawMention: null };
+    if (brand.length > 0) return { candidates: this.narrowToNamedColour(text, brand), rawMention: null };
 
     const category = this.matchCategoryOnly(text, lexicon);
     if (category.length > 0) return { candidates: category, rawMention: null };
@@ -241,6 +318,26 @@ export class VehicleIntentService {
     if (fuzzy.length > 0) return { candidates: fuzzy, rawMention: null };
 
     return { candidates: [], rawMention: null };
+  }
+
+  /**
+   * "Cullinan white" names one catalog row, not both colours. Applies only when every candidate is
+   * the same car (a colour cannot decide between two different models).
+   */
+  private narrowToNamedColour(
+    text: string,
+    candidates: VehicleMentionCandidate[],
+  ): VehicleMentionCandidate[] {
+    const first = candidates[0];
+    if (!first || candidates.length < 2) return candidates;
+    if (!candidates.every((c) => c.make === first.make && c.model === first.model)) return candidates;
+    const lower = text.toLowerCase();
+    const named = candidates.filter((candidate) =>
+      (COLOR_KEYWORDS[candidate.color] ?? [candidate.color.toLowerCase()]).some((keyword) =>
+        new RegExp(`\\b${escapeRegExp(keyword)}\\b`).test(lower),
+      ),
+    );
+    return named.length > 0 ? named : candidates;
   }
 
   /**
@@ -397,7 +494,7 @@ export class VehicleIntentService {
   private findGenericVehiclePhrase(text: string): string | null {
     const capitalizedPhrases = extractVehicleShapedPhrases(text);
     if (capitalizedPhrases.length > 0) return capitalizedPhrases[0]!;
-    const match = GENERIC_MENTION_RE.exec(text);
-    return match?.[1]?.trim() ?? null;
+    const generic = GENERIC_MENTION_RE.exec(text)?.[1]?.trim();
+    return generic && !isNotAVehiclePhrase(generic) ? generic : null;
   }
 }

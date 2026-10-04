@@ -108,6 +108,17 @@ export const apiEnvSchema = baseEnvSchema.extend({
   // never stated: the concierge says it is unsure and asks the team instead of guessing.
   BUSINESS_FACTS_JSON: z.string().trim().min(2).optional(),
 
+  // Who the concierge speaks for. The brand name appears in every reply; the profile JSON overrides
+  // branches, the delivery rule, popular models and public holidays (see packages/ai concierge/profile.ts).
+  // Defaults describe Diamondlease; nothing in the code path depends on the name.
+  BUSINESS_NAME: z.string().trim().min(1).max(60).default('Diamondlease'),
+  BUSINESS_PROFILE_JSON: z.string().trim().min(2).optional(),
+
+  // Google Maps (Geocoding + Directions): measures the real road distance for delivery requests to a
+  // place the built-in UAE gazetteer does not know. Optional; without it the gazetteer's coordinates
+  // and a road-distance estimate are used, and an unknown place is simply asked for again.
+  GOOGLE_MAPS_API_KEY: z.string().trim().min(1).optional(),
+
   // Twilio — staff SMS notification only (EscalationCase alerts), never a
   // customer-facing channel. All optional; unset means NOT_CONFIGURED, same
   // convention as every other provider above (see lib/notificationProvider.ts).

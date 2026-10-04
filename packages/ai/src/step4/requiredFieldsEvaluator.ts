@@ -69,11 +69,13 @@ function evaluateDateField(
   value: string | null,
   dateLocation: DateLocationSnapshot | null,
 ): MissingField | null {
-  if (value) return null;
   const invalid = dateLocation?.validationErrors.find(
     (issue) => issue.field === validationField && issue.severity === 'ERROR',
   );
+  // A date that was understood but is not acceptable (in the past, or a return before the pickup)
+  // is not "collected": the customer is asked again instead of the booking moving on with it.
   if (invalid) return { field, reason: MissingFieldReason.INVALID, detail: invalid.message };
+  if (value) return null;
   const ambiguous = dateLocation?.ambiguities.find((a) => a.field === validationField);
   if (ambiguous) {
     return { field, reason: MissingFieldReason.AMBIGUOUS, detail: ambiguous.message };
@@ -169,9 +171,15 @@ export class RequiredFieldsEvaluator {
       input.vehicle?.promptInjectionDetected,
     );
 
+    const hasDateError = (field: 'pickupDate' | 'returnDate') =>
+      Boolean(
+        input.dateLocation?.validationErrors.some(
+          (issue) => issue.field === field && issue.severity === 'ERROR',
+        ),
+      );
     const collected: CollectedBookingInfo = {
-      pickupDate: input.dateLocation?.pickupDate ?? null,
-      returnDate: input.dateLocation?.returnDate ?? null,
+      pickupDate: hasDateError('pickupDate') ? null : (input.dateLocation?.pickupDate ?? null),
+      returnDate: hasDateError('returnDate') ? null : (input.dateLocation?.returnDate ?? null),
       pickupLocation: input.dateLocation?.pickupLocation ?? null,
       dropoffLocation: input.dateLocation?.dropoffLocation ?? null,
       vehicle: input.vehicle?.resolvedVehicle ?? null,

@@ -336,8 +336,9 @@ describe('automatic Steps 5-8 chain — integration', () => {
       expect(escalation?.status).toBe('OPEN');
       expect(escalation?.detail).toMatch(/accepted quote/i);
 
+      // The concierge keeps answering (it is not muted) and reminds the customer a person has the booking.
       const waiting = await say(from, 'Thanks, when will they call?');
-      expect(waiting).toMatch(/already looking after/i);
+      expect(waiting).toMatch(/looking after your booking/i);
       expect(await testApp.ctx.prisma.escalationCase.count()).toBe(1);
     },
   );
@@ -442,7 +443,8 @@ describe('automatic Steps 5-8 chain — integration', () => {
       await say(from, 'Lamborghini Urus');
       await say(from, 'hmm ok');
       const reply = await say(from, 'can I talk to a real person please');
-      expect(reply).toMatch(/already looking after/i);
+      expect(reply).toMatch(/our team/i);
+      expect(reply).toMatch(/same chat/i);
       expect(await testApp.ctx.prisma.escalationCase.count()).toBe(1);
     },
   );

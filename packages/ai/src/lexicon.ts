@@ -1,3 +1,4 @@
+import { extraLocationKeywords } from './step2/gazetteerExtra.js';
 import { IntentType, type IntentTypeValue } from '@ai-concierge/domain';
 
 /**
@@ -129,7 +130,7 @@ export const VEHICLE_KEYWORDS: string[] = [
   '7-seater',
 ];
 
-export const LOCATION_KEYWORDS: string[] = [
+const CORE_LOCATION_KEYWORDS: string[] = [
   'dubai marina',
   'downtown dubai',
   'business bay',
@@ -140,6 +141,11 @@ export const LOCATION_KEYWORDS: string[] = [
   'abu dhabi',
   'sharjah',
   'dubai',
+];
+
+/** The core places plus every branch and UAE area the delivery check knows (a place is never a car). */
+export const LOCATION_KEYWORDS: string[] = [
+  ...new Set([...CORE_LOCATION_KEYWORDS, ...extraLocationKeywords()]),
 ];
 
 export const DRIVER_REQUIRED_KEYWORDS = [

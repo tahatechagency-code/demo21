@@ -106,6 +106,7 @@ export async function buildTestApp(
     FLEET_API_TIMEOUT_MS: 3000,
     AVAILABILITY_HOLD_TTL_SECONDS: 900,
     AVAILABILITY_TURNAROUND_BUFFER_MINUTES: 120,
+    BUSINESS_NAME: 'Diamondlease',
     ...overrides,
   };
 

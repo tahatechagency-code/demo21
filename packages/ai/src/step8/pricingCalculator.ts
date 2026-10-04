@@ -8,6 +8,7 @@ import {
   type QuoteSelections,
   type Vehicle,
 } from '@ai-concierge/domain';
+import { convertPegged } from './currencyPeg.js';
 import type { PricingRules } from './pricingRules.js';
 
 export interface ComputedLineItem {
@@ -100,20 +101,23 @@ export function calculatePricing(input: PricingCalculationInput): PricingCalcula
   }
 
   const currency = rules.currency;
-  const vehicleDailyRate = Money.fromMajorUnits(
-    vehicle.pricingProfile.dailyRate,
-    vehicle.pricingProfile.currency,
-  );
+  // A catalog row priced in a currency pegged to the quote currency (USD -> AED) is converted at the
+  // fixed peg; any other mismatch is left alone and fails loudly on the first combine below.
+  const profileCurrency = vehicle.pricingProfile.currency;
+  const inQuoteCurrency = (amount: number): Money => {
+    const converted = convertPegged(amount, profileCurrency, currency);
+    return converted === null
+      ? Money.fromMajorUnits(amount, profileCurrency)
+      : Money.fromMajorUnits(converted, currency);
+  };
+  const vehicleDailyRate = inQuoteCurrency(vehicle.pricingProfile.dailyRate);
 
   const lineItems: ComputedLineItem[] = [];
 
   const fullWeeks = Math.floor(durationDays / 7);
   const remainderDays = durationDays % 7;
   if (fullWeeks > 0 && vehicle.pricingProfile.weeklyRate !== undefined) {
-    const weeklyRate = Money.fromMajorUnits(
-      vehicle.pricingProfile.weeklyRate,
-      vehicle.pricingProfile.currency,
-    );
+    const weeklyRate = inQuoteCurrency(vehicle.pricingProfile.weeklyRate);
     lineItems.push({
       category: QuoteLineItemCategory.BASE_RENTAL,
       code: 'BASE_RENTAL_WEEKLY',
@@ -234,7 +238,7 @@ export function calculatePricing(input: PricingCalculationInput): PricingCalcula
 
   const deposit =
     vehicle.pricingProfile.depositAmount !== undefined
-      ? Money.fromMajorUnits(vehicle.pricingProfile.depositAmount, vehicle.pricingProfile.currency)
+      ? inQuoteCurrency(vehicle.pricingProfile.depositAmount)
       : rules.defaultDepositAmount();
 
   return { currency, lineItems, taxes, fees, discounts, deposit, total };

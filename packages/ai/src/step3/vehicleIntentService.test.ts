@@ -325,3 +325,72 @@ describe('VehicleIntentService: a colour-only reply narrows the earlier car', ()
     expect(proposal.candidates.every((candidate) => candidate.color === 'White')).toBe(true);
   });
 });
+
+describe('VehicleIntentService: spoken names, missing cars, and words that are not cars', () => {
+  const mk = (id: string, make: string, model: string, color: string): VehicleLexiconEntry => ({
+    id,
+    make,
+    model,
+    color,
+    category: 'SUV',
+    active: true,
+    availabilityStatus: 'AVAILABLE',
+  });
+  const FLEET2: VehicleLexiconEntry[] = [
+    mk('g-black', 'Mercedes-Benz', 'G63 AMG', 'Black'),
+    mk('g-white', 'Mercedes-Benz', 'G63 AMG', 'White'),
+    mk('s-black', 'Mercedes-Benz', 'S-Class', 'Black'),
+    mk('cull-black', 'Rolls-Royce', 'Cullinan', 'Black'),
+    mk('cull-white', 'Rolls-Royce', 'Cullinan', 'White'),
+    mk('urus-black', 'Lamborghini', 'Urus', 'Black'),
+    mk('lc', 'Toyota', 'Land Cruiser', 'Beige'),
+  ];
+  const propose = (text: string) => makeService().propose(text, FLEET2);
+  const ids = (text: string) => propose(text).candidates.map((c) => c.lexiconEntryId);
+
+  it('"Mercedes G63" finds the G63 AMG (both colours)', () => {
+    expect(ids('Mercedes G63 for tomorrow')).toEqual(['g-black', 'g-white']);
+  });
+
+  it('"g wagon" and "gwagon" find the G63 AMG', () => {
+    expect(ids('do you have a g wagon')).toEqual(['g-black', 'g-white']);
+    expect(ids('gwagon price')).toEqual(['g-black', 'g-white']);
+  });
+
+  it('"s class" finds the S-Class without the hyphen', () => {
+    expect(ids('I want an s class')).toEqual(['s-black']);
+  });
+
+  it('"lambo" finds the Lamborghini', () => {
+    expect(ids('lambo for the weekend')).toEqual(['urus-black']);
+  });
+
+  it('"rolls cullinan" finds the Cullinan', () => {
+    expect(ids('rolls cullinan white')).toEqual(['cull-white']);
+  });
+
+  it('"landcruiser" finds the Land Cruiser', () => {
+    expect(ids('landcruiser please')).toEqual(['lc']);
+  });
+
+  it('"Toyota Camry" is NOT swapped for the Land Cruiser', () => {
+    const proposal = propose('I want a Toyota Camry');
+    expect(proposal.candidates).toEqual([]);
+    expect(proposal.rawMention).toMatch(/camry/i);
+  });
+
+  it('"Thar" and "Bugatti" are missing cars, not matches', () => {
+    expect(propose('do you have Mahindra Thar').candidates).toEqual([]);
+    expect(propose('do you have Mahindra Thar').rawMention).toMatch(/thar/i);
+    expect(propose('Bugatti Chiron').rawMention).toMatch(/bugatti|chiron/i);
+  });
+
+  it.each(['I need a car on 15 November', 'Oct', 'UAE', 'car', 'I want to book a car for 5 days from Monday'])(
+    '%s is never called "not a vehicle we offer"',
+    (text) => {
+      const proposal = propose(text);
+      expect(proposal.candidates).toEqual([]);
+      expect(proposal.rawMention).toBeNull();
+    },
+  );
+});

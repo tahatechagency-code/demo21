@@ -425,3 +425,47 @@ describe('RequiredFieldsEvaluator', () => {
     expect(result.promptInjectionDetectedAnywhere).toBe(false);
   });
 });
+
+describe('RequiredFieldsEvaluator: a date that was understood but is not acceptable', () => {
+  const evaluate = (validationErrors: DateLocationSnapshot['validationErrors']) =>
+    makeEvaluator().evaluate({
+      intent: BOOKING_INTENT,
+      dateLocation: { ...COMPLETE_DATE_LOCATION, validationErrors },
+      vehicle: RESOLVED_VEHICLE,
+      conversationCreatedAt: NOW,
+      now: NOW,
+    });
+
+  it('a pickup in the past is asked for again, not accepted', () => {
+    const result = evaluate([
+      { field: 'pickupDate', code: 'PAST_DATE', message: 'Pickup date is in the past', severity: 'ERROR' },
+    ]);
+    expect(result.status).toBe('NEEDS_INFO');
+    expect(result.collected.pickupDate).toBeNull();
+    expect(result.missingFields).toEqual([
+      { field: 'PICKUP_DATE', reason: 'INVALID', detail: 'Pickup date is in the past' },
+    ]);
+  });
+
+  it('a return before the pickup is asked for again, and the pickup is kept', () => {
+    const result = evaluate([
+      {
+        field: 'returnDate',
+        code: 'RETURN_BEFORE_OR_EQUAL_PICKUP',
+        message: 'Return date must be strictly after the pickup date',
+        severity: 'ERROR',
+      },
+    ]);
+    expect(result.status).toBe('NEEDS_INFO');
+    expect(result.collected.returnDate).toBeNull();
+    expect(result.collected.pickupDate).toBe(COMPLETE_DATE_LOCATION.pickupDate);
+    expect(result.missingFields.map((f) => f.field)).toEqual(['RETURN_DATE']);
+  });
+
+  it('a warning does not block the booking', () => {
+    const result = evaluate([
+      { field: 'timezone', code: 'TIMEZONE_MISMATCH', message: 'x', severity: 'WARNING' },
+    ]);
+    expect(result.status).toBe('COMPLETE');
+  });
+});

@@ -151,7 +151,7 @@ export function normalizeMessage(message: string): string {
   return message
     .toLowerCase()
     .replace(/[’‘`]/g, "'")
-    .replace(/[^\p{L}\p{N}:'\s]+/gu, ' ')
+    .replace(/[^\p{L}\p{M}\p{N}:'\s]+/gu, ' ')
     .replace(/(.)\1{2,}/g, '$1$1')
     .trim()
     .split(/\s+/)
@@ -287,6 +287,23 @@ const RULES: Rule[] = [
     'GREETING',
     0.9,
     /^(?:hi|hello|hey|salam|salaam|assalam\w*|namaste|hola|good (?:morning|evening|afternoon))\b(?:\s+\w+){0,3}$/,
+  ),
+  // Arabic and Hindi greetings.
+  rule(
+    'GREETING',
+    0.9,
+    /^(?:مرحبا|مرحباً|السلام عليكم|سلام|اهلا|أهلا|هلا|صباح الخير|مساء الخير|नमस्ते|नमस्कार|हेलो|हैलो)(?:\s+\S+){0,3}$/u,
+  ),
+  // Hinglish: "mujhe gaadi chahiye", "car chahiye", "kiraye par".
+  rule(
+    'BOOKING',
+    0.9,
+    /\b(?:gaadi|gadi|car|kar|vehicle)\b.{0,15}\b(?:chahiye|chahie|chaahiye|lena hai|leni hai)\b|\b(?:chahiye|chahie|chaahiye)\b.{0,15}\b(?:gaadi|gadi|car)\b|\bkiraye\b|\brent par\b/,
+  ),
+  rule(
+    'HUMAN_REQUEST',
+    0.9,
+    /\b(?:team|staff|manager|insaan|aadmi|banda|admi|koi)\b.{0,12}\b(?:se|ko)\b.{0,12}\b(?:baat|bat|connect|milna)\b/,
   ),
   rule(
     'CONTINUATION',

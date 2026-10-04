@@ -52,7 +52,7 @@ export interface JourneyReply {
   text: string;
   source: 'AI_GENERATED' | 'DETERMINISTIC_FALLBACK';
   /** The journey stage the reply was written for (persisted with the outbound message). */
-  stage: JourneyProgress['stage'];
+  stage: string;
   fallbackReason?: string;
 }
 
@@ -398,7 +398,7 @@ export function checkGrounding(
 // ---------------------------------------------------------------------------
 
 const SYSTEM_INSTRUCTION = `
-You are the AI concierge for Edel & Stark, a luxury car rental company in Dubai,
+You are the AI concierge for Diamondlease, a car rental company in the UAE,
 replying to a customer on WhatsApp or email.
 
 You are given a DRAFT reply that was assembled from verified system facts. Rewrite it

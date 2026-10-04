@@ -160,3 +160,25 @@ export async function expireDueHolds(db: Executor, now: Date): Promise<number> {
   });
   return result.count;
 }
+
+/**
+ * How many units of each vehicle are out on a confirmed booking or an unexpired hold at the instant
+ * `at` — in one query. Same notion of "taken" as `countOverlappingHolds`, evaluated for a point in time.
+ */
+export async function countHeldNowForAllVehicles(
+  db: Executor,
+  tenantId: TenantId,
+  at: Date,
+): Promise<Map<string, number>> {
+  const rows = await db.availabilityHold.groupBy({
+    by: ['vehicleId'],
+    where: {
+      tenantId,
+      pickupAt: { lte: at },
+      returnAt: { gt: at },
+      OR: [{ status: 'CONFIRMED' }, { status: 'ACTIVE', expiresAt: { gt: at } }],
+    },
+    _count: { _all: true },
+  });
+  return new Map(rows.map((row) => [row.vehicleId, row._count._all]));
+}

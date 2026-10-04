@@ -2,9 +2,17 @@ import { RequiredField, type MissingField, type RequiredFieldValue } from '@ai-c
 
 const FIELD_PHRASES: Record<RequiredFieldValue, (detail?: string) => string> = {
   [RequiredField.PICKUP_DATE]: (detail) =>
-    detail ? `your exact pickup date (${detail})` : 'when you would like to pick up the car',
+    detail && /past/i.test(detail)
+      ? 'a pickup date from today onwards (the date you gave has already passed)'
+      : detail
+        ? `your exact pickup date (${detail})`
+        : 'when you would like to pick up the car',
   [RequiredField.RETURN_DATE]: (detail) =>
-    detail ? `your exact return date (${detail})` : 'when you would like to return the car',
+    detail && /after the pickup/i.test(detail)
+      ? 'a return date that is after your pickup date'
+      : detail
+        ? `your exact return date (${detail})`
+        : 'when you would like to return the car',
   [RequiredField.PICKUP_LOCATION]: (detail) =>
     detail ? `your pickup location (${detail})` : 'where you would like to pick up the car',
   [RequiredField.VEHICLE]: (detail) =>

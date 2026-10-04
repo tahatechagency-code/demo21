@@ -57,3 +57,19 @@ describe('buildClarificationPrompt', () => {
     );
   });
 });
+
+describe('buildClarificationPrompt: unacceptable dates', () => {
+  it('says plainly that a past pickup date has passed', () => {
+    const text = buildClarificationPrompt([
+      { field: 'PICKUP_DATE', reason: 'INVALID', detail: 'Pickup date is in the past' },
+    ]);
+    expect(text).toMatch(/from today onwards/);
+  });
+
+  it('asks for a return after the pickup', () => {
+    const text = buildClarificationPrompt([
+      { field: 'RETURN_DATE', reason: 'INVALID', detail: 'Return date must be strictly after the pickup date' },
+    ]);
+    expect(text).toMatch(/after your pickup date/);
+  });
+});

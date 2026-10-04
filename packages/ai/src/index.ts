@@ -13,6 +13,14 @@ export * from './router/frontDoor.js';
 export * from './router/photoRequest.js';
 export * from './router/faqTopics.js';
 export * from './router/replyGuard.js';
+
+// Concierge Engine — fleet-first knowledge, location + delivery rules, policy answers, fallback options
+export * from './concierge/profile.js';
+export * from './concierge/locations.js';
+export * from './concierge/fleetKnowledge.js';
+export * from './concierge/fleetReplies.js';
+export * from './concierge/policyFaq.js';
+export * from './concierge/options.js';
 // Step 2 — Extract Dates & Location
 export * from './step2/calendar.js';
 export * from './step2/calendarDay.js';
@@ -67,7 +75,11 @@ export * from './step7/reasonBuilder.js';
 export * from './step7/orchestrator.js';
 
 // Step 8 — Quote/Pricing
+export * from './step8/currencyPeg.js';
 export * from './step8/pricingRules.js';
 export * from './step8/pricingCalculator.js';
 export * from './step8/pricingAnomalyDetector.js';
 export * from './step8/quoteValidator.js';
+
+// The starter fleet as engine input — shared by the concierge's unit and end-to-end tests.
+export { fixtureFleet, fixtureRows } from './concierge/test/fleetFixture.js';

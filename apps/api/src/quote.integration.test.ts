@@ -223,14 +223,27 @@ describe('POST /v1/enquiries/:conversationId/quote — integration', () => {
     expect(response.json().error.details.code).toBe('RETURN_BEFORE_OR_EQUAL_PICKUP');
   });
 
-  it('rejects a vehicle priced in a different currency than the pricing rules ("currency mismatch")', async () => {
-    await seedUrus({ currency: 'USD', dailyRate: 900 });
+  it('rejects a vehicle priced in a currency with no fixed rate to the pricing rules ("currency mismatch")', async () => {
+    await seedUrus({ currency: 'EUR', dailyRate: 900 });
     const conversationId = await createConversation(BOOKING_MESSAGE);
     await runStepsThroughVehicle(conversationId);
 
     const response = await requestQuote(conversationId);
     expect(response.statusCode).toBe(400);
     expect(response.json().error.details.code).toBe('CURRENCY_MISMATCH');
+  });
+
+  it('quotes a USD-priced vehicle in dirhams at the fixed peg instead of refusing it', async () => {
+    await seedUrus({ currency: 'USD', dailyRate: 1000 });
+    const conversationId = await createConversation(BOOKING_MESSAGE);
+    await runStepsThroughVehicle(conversationId);
+
+    const response = await requestQuote(conversationId);
+    expect(response.statusCode).toBe(201);
+    const quote = response.json().quote;
+    expect(quote.currency).toBe('AED');
+    // 1000 USD x 3.6725 = AED 3,672.50 per day.
+    expect(quote.lineItems[0].unitAmount).toMatchObject({ minorUnits: 367250, currency: 'AED' });
   });
 
   it('never reuses an already-expired quote, and GET reports QUOTE_EXPIRED ("expired quote")', async () => {

@@ -51,12 +51,14 @@ class ScriptedGemini implements AIProvider {
   lastPrompt = '';
 
   async generateStructured(input: GenerateStructuredInput): Promise<GenerateStructuredResult> {
-    if (input.schemaName !== 'concierge-turn-v1') throw new Error('unscripted call');
+    const isUnderstand = input.schemaName === 'concierge-understand-v2';
+    const isOptions = input.schemaName.startsWith('concierge-options-v2');
+    if (!isUnderstand && !isOptions) throw new Error('unscripted call');
     this.calls += 1;
     this.lastPrompt = input.prompt;
     if (this.answer === 'THROW') throw new Error('gemini down');
     return {
-      json: this.answer,
+      json: isUnderstand ? this.answer : { options: [] },
       usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
       modelId: 'scripted',
       latencyMs: 1,
@@ -196,7 +198,7 @@ describe('conversation QA — 25 scenarios', () => {
     expect(classifyFrontDoor('please call off my reservation', none).intent).toBe('CANCELLATION');
     expect(classifyFrontDoor("what's the tariff for the Urus", none).intent).toBe('PRICING');
     const price = await chat(randomUUID(), "what's the tariff for the Urus");
-    expect(price.reply.text).toMatch(/AED 3,500 per day/);
+    expect(price.reply.text).toMatch(/AED 3,500/);
     expect(price.escalated).toBe(false);
     expect(gemini.calls).toBe(0);
   });
@@ -217,18 +219,28 @@ describe('conversation QA — 25 scenarios', () => {
     expect((await cases()).length).toBe(before);
   });
 
-  it('05 ambiguous: unreadable text goes to Gemini once, then to a person if it is unsure', async () => {
+  it('05 ambiguous: unreadable text goes to Gemini once, then to the options — a person only after two misses', async () => {
     gemini.answer = {
-      route: 'HUMAN',
+      understood: false,
       intent: 'UNKNOWN',
       confidence: 0.3,
-      reply: '',
-      human_reason: 'unclear',
+      action: 'ANSWER',
+      answer: '',
+      reason: 'unclear',
     };
-    const result = await chat(randomUUID(), 'hmm that thing from before');
-    expect(gemini.calls).toBe(1);
-    expect(result.escalated).toBe(true);
-    expect((await cases())[0]!.detail).toMatch(/AI_UNCERTAIN/);
+    const session = randomUUID();
+    const first = await chat(session, 'hmm that thing from before');
+    expect(first.escalated).toBe(false);
+    expect(first.reply.text).toMatch(/Did you mean one of these/);
+    expect(await cases()).toHaveLength(0);
+    // The understanding call happened once for this message (the options call is the second).
+    expect(gemini.calls).toBe(2);
+    const second = await chat(session, 'that other thing I mentioned');
+    expect(second.escalated).toBe(false);
+    expect(second.reply.text).toMatch(/CONTACT MY TEAM/);
+    const third = await chat(session, '4');
+    expect(third.escalated).toBe(true);
+    expect((await cases()).map((row) => row.status)).toEqual(['OPEN']);
   });
 
   it('06 multiple intents: price + cancel + delivery -> price answered, cancel handed over once', async () => {
@@ -272,12 +284,14 @@ describe('conversation QA — 25 scenarios', () => {
     expect(result.reply.text).not.toMatch(/cancelled/i);
   });
 
-  it('10 "that one": with two matching colours it asks again instead of guessing', async () => {
+  it('10 "that one": the car is the BMW X5 and the colour stays open until the customer names one', async () => {
     const session = randomUUID();
     const first = await chat(session, 'I want to rent the BMW X5');
     expect(first.reply.text).toMatch(/Black or White|black and white/i);
+    expect(first.booking?.vehicle).toBe('BMW X5');
     const second = await chat(session, 'that one');
-    expect(second.booking?.vehicle ?? null).toBeNull();
+    // "that one" does not pick a colour, so none is assumed — but the car itself is never forgotten.
+    expect(second.booking?.vehicle).toBe('BMW X5');
     expect(second.escalated).toBe(false);
   });
 
@@ -303,21 +317,11 @@ describe('conversation QA — 25 scenarios', () => {
   it('13 topic switch: a documents question is answered and the booking survives it', async () => {
     const session = randomUUID();
     await chat(session, BOOKING);
-    gemini.answer = {
-      route: 'ANSWER',
-      intent: 'DOCUMENTS',
-      confidence: 0.9,
-      reply:
-        'You will need your passport and a valid driving licence. Shall we carry on with the Urus?',
-    };
     const docs = await chat(session, 'what documents do I need?');
-    expect(docs.reply.text).toContain('passport and a valid driving licence');
-    // Gemini was given the real policy, not left to guess it.
-    expect(gemini.lastPrompt).toContain('Minimum driver age 21.');
-    expect(gemini.lastPrompt).toContain(
-      'ULTRA_LUXURY cars need the driver to be at least 25: Lamborghini Urus',
-    );
-    expect(gemini.lastPrompt).toContain('BOOKING SO FAR: car Lamborghini Urus');
+    // Answered from the owner's terms (no model involved), and the booking is still where it was.
+    expect(docs.reply.text).toMatch(/passport/);
+    expect(docs.reply.text).toMatch(/UAE driving licence/);
+    expect(gemini.calls).toBe(0);
     expect(docs.escalated).toBe(false);
     expect(docs.booking?.vehicle).toMatch(/Urus/);
     const back = await chat(session, FULL_DETAILS);
@@ -330,15 +334,29 @@ describe('conversation QA — 25 scenarios', () => {
     ['15 Gemini timeout', 'THROW'],
     [
       '16 Gemini misunderstanding',
-      { route: 'CONTINUE_BOOKING', intent: 'BOOKING', confidence: 0.3, reply: '' },
+      {
+        understood: true,
+        intent: 'BOOKING',
+        confidence: 0.3,
+        action: 'CONTINUE_BOOKING',
+        answer: '',
+        reason: '',
+      },
     ],
-  ])('%s: never guesses, hands over once, no loop', async (_name, answer) => {
+  ])('%s: never guesses, offers options, then a person once — no loop', async (_name, answer) => {
     gemini.answer = answer;
-    const result = await chat(randomUUID(), 'asdf qwerty zzz');
-    expect(gemini.calls).toBe(1);
-    expect(result.escalated).toBe(true);
+    const session = randomUUID();
+    const first = await chat(session, 'asdf qwerty zzz');
+    expect(first.escalated).toBe(false);
+    expect(first.reply.text).toMatch(/Did you mean one of these/);
+    expect(first.reply.text).not.toMatch(/booked|confirmed|cancelled/i);
+    const second = await chat(session, 'zzz qwerty asdf again');
+    expect(second.reply.text).toMatch(/CONTACT MY TEAM/);
+    const third = await chat(session, 'still asdf zzz nothing');
+    expect(third.escalated).toBe(true);
+    const fourth = await chat(session, 'zzz hmm qwerty');
+    expect(fourth.reply.text.length).toBeGreaterThan(10);
     expect(await cases()).toHaveLength(1);
-    expect(result.reply.text).not.toMatch(/booked|confirmed|cancelled/i);
   });
 
   it('17 human escalation: an explicit request opens a case with the conversation attached', async () => {

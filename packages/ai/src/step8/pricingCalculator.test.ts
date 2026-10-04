@@ -140,8 +140,25 @@ describe('calculatePricing', () => {
     ).toThrow(AppError);
   });
 
-  it('rejects a vehicle priced in a different currency than the pricing rules ("currency mismatch")', () => {
-    const usdVehicle = makeVehicle({ pricingProfile: { currency: 'USD', dailyRate: 900 } });
+  it('converts a USD-priced vehicle at the fixed dirham peg instead of refusing it', () => {
+    const usdVehicle = makeVehicle({
+      pricingProfile: { currency: 'USD', dailyRate: 1000, depositAmount: 2000 },
+    });
+    const result = calculatePricing({
+      vehicle: usdVehicle,
+      durationDays: 2,
+      selections: makeSelections(),
+      rules,
+    });
+    // 1000 USD x 3.6725 = 3,672.50 AED per day.
+    expect(result.currency).toBe('AED');
+    expect(result.lineItems[0]!.unitAmount.minorUnits).toBe(367250);
+    expect(result.lineItems[0]!.amount.minorUnits).toBe(734500);
+    expect(result.deposit.minorUnits).toBe(734500);
+  });
+
+  it('rejects a vehicle priced in a currency with no fixed rate ("currency mismatch")', () => {
+    const usdVehicle = makeVehicle({ pricingProfile: { currency: 'EUR', dailyRate: 900 } });
     try {
       calculatePricing({
         vehicle: usdVehicle,

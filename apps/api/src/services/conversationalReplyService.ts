@@ -39,6 +39,8 @@ export interface ReplyServiceLogger {
 export interface RecentTurn {
   role: 'customer' | 'assistant';
   content: string;
+  /** The stage the concierge stored with its own reply (lets the next message know what was just asked). */
+  stage?: string;
 }
 
 export interface GenerateConversationalReplyInput {
@@ -59,7 +61,7 @@ export interface ConversationalReplyDeps {
 }
 
 const SYSTEM_INSTRUCTION = `
-You are the AI concierge for Edel & Stark, a luxury car rental company in Dubai.
+You are the AI concierge for Diamondlease, a car rental company in the UAE.
 Write ONE short, warm reply to the customer's latest message, suitable for WhatsApp.
 
 Ground rules — follow exactly, no exceptions:

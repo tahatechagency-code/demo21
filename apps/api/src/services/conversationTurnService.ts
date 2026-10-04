@@ -24,8 +24,8 @@ import {
 import { advanceJourneyAutomatically } from './journeyAutopilotService.js';
 import type { JourneyProgress } from './journeyProgress.js';
 import { generateJourneyReply, type JourneyReply } from './journeyReplyService.js';
-import { syncJourneyAfterMissingInfo } from './journeyService.js';
-import { runFrontDoor, type FrontDoorOverride } from './frontDoor/frontDoorService.js';
+import { notifyOpenCaseOfCustomerMessage, syncJourneyAfterMissingInfo } from './journeyService.js';
+import { runConciergeEngine, type EngineOverride } from './concierge/engine.js';
 import { buildPhotoReply } from './vehiclePhotoReplyService.js';
 
 export interface InboundTurnInput {
@@ -103,17 +103,19 @@ async function loadTurns(
     ...customerMessages.map((row) => ({
       role: 'customer' as const,
       content: row.content,
+      stage: undefined as string | undefined,
       at: row.createdAt.getTime(),
     })),
     ...outboundMessages.map((row) => ({
       role: 'assistant' as const,
       content: row.content,
+      stage: row.stage as string | undefined,
       at: row.createdAt.getTime(),
     })),
   ]
     .sort((a, b) => a.at - b.at)
     .slice(-MAX_RECENT_TURNS_FOR_REPLY)
-    .map(({ role, content }) => ({ role, content }));
+    .map(({ role, content, stage }) => ({ role, content, ...(stage ? { stage } : {}) }));
 }
 
 /**
@@ -222,22 +224,37 @@ export async function handleInboundTurn(
   const turns = await loadTurns(ctx, tenantId, conversationId);
   const resolvedVehicleId = pipeline.vehicle.determination.resolvedVehicle?.id ?? null;
 
-  // The front door: rules -> Gemini (only if unsure) -> a person. `null` means the booking pipeline's own reply stands.
-  let override: FrontDoorOverride | null = null;
+  // A person already owns this case: they are paged for every new customer message, so a reply in this
+  // chat never waits to be noticed. The concierge keeps answering below — it is never muted.
+  if (progress.stage === 'ESCALATED_WAITING') {
+    try {
+      await notifyOpenCaseOfCustomerMessage(
+        { prisma: ctx.prisma, notificationProvider: ctx.notificationProvider },
+        { tenantId, conversationId },
+      );
+    } catch (error) {
+      ctx.logger.error({ err: error }, 'could not page the case owner about a new customer message');
+    }
+  }
+
+  // The Conversation Engine: fleet-first rules -> Gemini -> options -> a person in the same chat.
+  // `null` means the booking pipeline's own reply stands.
+  let override: EngineOverride | null = null;
   try {
-    override = await runFrontDoor(ctx, {
+    override = await runConciergeEngine(ctx, {
       message: input.body,
       conversationId,
       requestId: input.requestId,
       progress,
       collected: missingInfo.collected,
+      missingInfoStatus: missingInfo.status,
       resolvedVehicleId,
       turns,
     });
   } catch (error) {
-    ctx.logger.error({ err: error }, 'front door failed, using the booking pipeline reply');
+    ctx.logger.error({ err: error }, 'concierge engine failed, using the booking pipeline reply');
   }
-  if (override) {
+  if (override && !override.continuePipeline) {
     const overriddenProgress: JourneyProgress = override.escalated
       ? { stage: 'HUMAN_REVIEW', cause: 'CUSTOMER_REQUESTED', handoffRecorded: true }
       : progress;
@@ -246,7 +263,7 @@ export async function handleInboundTurn(
       reply: {
         text: override.text,
         source: 'DETERMINISTIC_FALLBACK',
-        stage: overriddenProgress.stage,
+        stage: override.stage,
       },
       progress: overriddenProgress,
       missingInfoStatus: missingInfo.status,
@@ -259,7 +276,8 @@ export async function handleInboundTurn(
     { progress, missingInfo, turns },
   );
 
-  let replyText = reply.text;
+  // A short fact in front of the booking reply ("delivery to the Marina is AED 100 ...").
+  let replyText = override?.continuePipeline ? `${override.text}\n\n${reply.text}` : reply.text;
   let attachments: OutboundAttachment[] = [];
   // "Send me a photo of the Range Rover" mid-booking: attach the photos staff uploaded for it.
   try {
