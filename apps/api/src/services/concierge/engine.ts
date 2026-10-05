@@ -336,8 +336,11 @@ function isNoise(text: string): boolean {
 }
 
 /** "return kab hai?", "when do I pick up?", "which car did I choose?": answered from the booking so far. */
-const RETURN_WHEN_RE = /\b(?:return|wapas|vapas)\b.{0,15}\b(?:kab|when|date|kis din)\b|\b(?:kab|when)\b.{0,15}\b(?:return|wapas|vapas)\b/i;
-const PICKUP_WHEN_RE = /\b(?:pick ?-?up|collect(?:ion)?|start)\b.{0,15}\b(?:kab|when|date)\b|\b(?:kab|when)\b.{0,15}\b(?:pick ?-?up|collect|start)\b/i;
+// A question ("return kab hai?", "what is my return date"), never a form field ("Return Date: 28 November").
+const RETURN_WHEN_RE =
+  /\b(?:return|wapas|vapas)\b.{0,15}\b(?:kab|when|kis din)\b|\b(?:kab|when)\b.{0,15}\b(?:return|wapas|vapas)\b|\b(?:what|which|kya)\b.{0,12}\b(?:return|wapas)\b.{0,8}\bdate\b|\b(?:return|wapas)\b.{0,8}\bdate\b.{0,8}(?:kya|kab|\?)/i;
+const PICKUP_WHEN_RE =
+  /\b(?:pick ?-?up|collect(?:ion)?|start)\b.{0,15}\b(?:kab|when)\b|\b(?:kab|when)\b.{0,15}\b(?:pick ?-?up|collect|start)\b|\b(?:what|which|kya)\b.{0,12}\b(?:pick ?-?up|collect(?:ion)?)\b.{0,8}\bdate\b|\b(?:pick ?-?up|collect(?:ion)?)\b.{0,8}\bdate\b.{0,8}(?:kya|kab|\?)/i;
 const STATE_RE =
   /\bwhich (?:car|vehicle)\b.{0,20}\b(?:book|choose|chose|select|pick)|\bkaun ?si (?:car|gaadi|gadi)\b.{0,20}\b(?:book|li|chun)|\bwhat (?:are|were) (?:my|the) (?:dates|details)\b|\b(?:my|meri|mera) booking\b|\bwhat (?:did|have) i (?:book|choose|select)\b/i;
 const TOTAL_RE = /\b(?:total|kitna|kitne ka|how much|price|cost|kharcha|rate)\b/i;
@@ -720,7 +723,15 @@ async function understandWithRules(base: UnderstandContext): Promise<Decision> {
   const kinds = detectFleetQuestion(original);
 
   // 3b. Driver details being collected: anything that is not a question is the answer to what was asked.
-  if (input.progress.stage === 'NEEDS_ELIGIBILITY_INFO' && !isRealQuestion(original) && !TOTAL_RE.test(original)) {
+  // Anything that asks for something ("price of Cullinan", "delivery to Sharjah", "insurance") is answered, not
+  // mistaken for a driver detail; "I hold a UAE licence and my passport" is the answer to what was asked.
+  const asksSomething =
+    isRealQuestion(original) ||
+    TOTAL_RE.test(original) ||
+    kinds.length > 0 ||
+    DELIVERY_WORDS.test(original) ||
+    (!FIRST_PERSON_RE.test(original) && detectPolicyTopics(original).length > 0);
+  if (input.progress.stage === 'NEEDS_ELIGIBILITY_INFO' && !asksSomething) {
     return { kind: 'PIPELINE' };
   }
   // 3c. A quote is out: questions about its price, deposit or VAT are answered by the quote itself.
@@ -792,7 +803,7 @@ async function understandWithRules(base: UnderstandContext): Promise<Decision> {
           text: deliveryNoteText(decision, k, seedOf(input)),
         };
       }
-      if (decision.kind === 'BRANCH_PICKUP' && inBooking) return { kind: 'PIPELINE' };
+      if (decision.kind === 'BRANCH_PICKUP' && inBooking && !DELIVERY_WORDS.test(original)) return { kind: 'PIPELINE' };
       // "price of Urus and G63 and delivery to JBR": the prices are answered too, not only the delivery.
       const priced =
         mention.kind === 'MODEL' && (kinds.includes('PRICE') || /\b(?:price|rate|kitne|kitna|cost)\b/i.test(original))
@@ -1077,7 +1088,8 @@ async function vehicleReply(
       }
       const bothDates = dates.pickupDate && dates.returnDate;
       // Everything is known (car, dates, place): the booking steps run availability, eligibility and the quote.
-      if (bothDates && dates.pickupLocation && dates.vehicle) return { kind: 'PIPELINE' };
+      // (A question about a car, "price of Cullinan", is answered for the booking's dates instead.)
+      if (bothDates && dates.pickupLocation && dates.vehicle && kinds.length === 0) return { kind: 'PIPELINE' };
       // A car together with a date or a place ("Urus kal Dubai Marina"): a booking begun, so the booking
       // steps ask only for what is still missing.
       if (

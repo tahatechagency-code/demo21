@@ -145,5 +145,8 @@
   { "id": "I02", "cat": "I-multi", "turns": [{ "say": "price of Urus and G63 and delivery to JBR", "expect": { "mustMatch": ["AED {{rate:Urus}}", "AED {{rate:G63 AMG}}", "AED 100"] } }] },
   { "id": "I03", "cat": "I-multi", "turns": [{ "say": "Urus deposit aur insurance kya hai", "expect": { "mustMatch": ["deposit", "insurance"] } }] },
   { "id": "I04", "cat": "I-multi", "turns": [{ "say": "Range Rover 3 din Marina price batao", "expect": { "mustMatch": ["AED"], "booking": { "vehicle": "Range Rover", "pickupLocation": "Marina" } } }] },
-  { "id": "I05", "cat": "I-multi", "turns": [{ "say": "Urus kal Marina aur kya payment card se hota hai", "expect": { "mustMatch": ["(card|payment)"], "booking": { "pickupLocation": "Marina" } } }] }
+  { "id": "I05", "cat": "I-multi", "turns": [{ "say": "Urus kal Marina aur kya payment card se hota hai", "expect": { "mustMatch": ["(card|payment)"], "booking": { "pickupLocation": "Marina" } } }] },
+  { "id": "F21", "cat": "F-multiturn", "turns": [{ "say": "Urus 15 to 19 Oct Marina", "expect": {} }, { "say": "price of Cullinan", "expect": { "mustMatch": ["AED {{rate:Cullinan}}"], "mustNotMatch": ["^(?:Thanks|Almost|Just|To move|Thank you)[^\n]{0,40}still need"] } }] },
+  { "id": "F22", "cat": "F-multiturn", "turns": [{ "say": "Urus 15 to 19 Oct Marina", "expect": {} }, { "say": "delivery to Sharjah", "expect": { "mustMatch": ["Sharjah", "AED 150"] } }] },
+  { "id": "F23", "cat": "F-multiturn", "turns": [{ "say": "Urus 15 to 19 Oct Marina", "expect": {} }, { "say": "insurance", "expect": { "mustMatch": ["insurance"] } }] }
 ]

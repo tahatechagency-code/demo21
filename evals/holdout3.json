@@ -98,5 +98,7 @@
   { "id": "YI01", "cat": "I-multi", "turns": [{ "say": "ghost kal marina 2 din, deposit aur insurance bhi batao", "expect": { "mustMatch": ["deposit", "insurance"], "booking": { "vehicle": "Ghost", "pickupLocation": "Marina" } } }] },
   { "id": "YI02", "cat": "I-multi", "turns": [{ "say": "x5 price aur x7 price aur jbr delivery", "expect": { "mustMatch": ["AED {{rate:X5}}", "AED {{rate:X7}}", "AED 100"] } }] },
   { "id": "YI03", "cat": "I-multi", "turns": [{ "say": "urus aur g63 compare karo", "expect": { "mustMatch": ["Urus", "G63"] } }] },
-  { "id": "YI04", "cat": "I-multi", "turns": [{ "say": "x5 3 din marina total aur deposit", "expect": { "mustMatch": ["AED", "deposit"], "booking": { "vehicle": "X5", "pickupLocation": "Marina" } } }] }
+  { "id": "YI04", "cat": "I-multi", "turns": [{ "say": "x5 3 din marina total aur deposit", "expect": { "mustMatch": ["AED", "deposit"], "booking": { "vehicle": "X5", "pickupLocation": "Marina" } } }] },
+  { "id": "YF16", "cat": "F-multiturn", "turns": [{ "say": "x5 20 dec to 23 dec jbr", "expect": {} }, { "say": "g63 price", "expect": { "mustMatch": ["AED {{rate:G63 AMG}}"] } }] },
+  { "id": "YF17", "cat": "F-multiturn", "turns": [{ "say": "x5 20 dec to 23 dec jbr", "expect": {} }, { "say": "delivery to Ajman", "expect": { "mustMatch": ["Ajman", "AED 150"] } }] }
 ]
