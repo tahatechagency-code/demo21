@@ -45,3 +45,25 @@ describe('an exhausted quota (429) stops the calls at once', () => {
     expect(calls).toBe(4);
   });
 });
+
+describe('a timeout pauses the provider briefly', () => {
+  it('the next customer is not made to wait the full timeout again', async () => {
+    let calls = 0;
+    const hanging: AIProvider = {
+      name: 'hanging',
+      async generateStructured() {
+        calls += 1;
+        return new Promise(() => undefined); // never answers
+      },
+      async healthCheck() {
+        return 'CONFIGURED' as const;
+      },
+    };
+    const provider = new ResilientAIProvider(hanging, { timeoutMs: 30 });
+    await expect(provider.generateStructured(INPUT)).rejects.toMatchObject({ name: 'TimeoutError' });
+    const started = Date.now();
+    await expect(provider.generateStructured(INPUT)).rejects.toThrow(/Circuit breaker is open/);
+    expect(Date.now() - started).toBeLessThan(20);
+    expect(calls).toBe(1);
+  });
+});

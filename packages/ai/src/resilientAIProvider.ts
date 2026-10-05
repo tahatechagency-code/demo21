@@ -20,6 +20,8 @@ export interface ResilientAIProviderOptions {
 
 /** How long the AI provider is left alone after the upstream answered "429 quota exceeded". */
 export const QUOTA_HOLD_MS = 5 * 60_000;
+/** How long the AI provider is left alone after a call timed out. */
+export const SLOW_HOLD_MS = 20_000;
 
 const DEFAULT_OPTIONS: Required<ResilientAIProviderOptions> = {
   timeoutMs: 8000,
@@ -61,6 +63,10 @@ export class ResilientAIProvider implements AIProvider {
       // "Quota exceeded" does not clear in seconds: stop calling (and stop making customers wait) for a while.
       if ((error as { details?: { status?: number } } | null)?.details?.status === 429) {
         this.circuitBreaker.trip(QUOTA_HOLD_MS);
+      } else if ((error as Error | null)?.name === 'TimeoutError') {
+        // A model that just timed out is slow right now: answer from the vetted wording for a moment instead
+        // of making the next customers wait the full timeout too.
+        this.circuitBreaker.trip(SLOW_HOLD_MS);
       }
       throw error;
     }
