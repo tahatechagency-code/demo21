@@ -22,7 +22,7 @@ if (existsSync(envFile)) {
 const env = {
   ...process.env,
   NODE_ENV: 'development',
-  LOG_LEVEL: 'warn',
+  LOG_LEVEL: process.env.EVAL_LOG_LEVEL ?? 'warn',
   DATABASE_URL: process.env.EVAL_DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/ai_concierge_eval',
   REDIS_URL: process.env.EVAL_REDIS_URL ?? 'redis://localhost:6379/1',
   WEBHOOK_SIGNING_SECRET: 'eval-webhook-secret-1234567890',

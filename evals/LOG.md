@@ -26,3 +26,9 @@ expectation changes are listed under "Changed expectations").
 Three consecutive full runs, last commit: dev 139/139, holdout 117/117, holdout2 99/99 each time (100%). p50 ~0.25 s, p95 ~0.45 s, no HTTP >= 400, generic fallback 2.1-2.5%, replies over 3 lines / 60 words (lists exempt): 0.
 Also green: eslint (0 warnings), typecheck of every package (the `packages/db` typecheck needs the Prisma engine file free, so it fails only while a local API process holds it), ai package 747 tests, API 646 tests.
 Not measurable without a Gemini key in the run: share of `AI_GENERATED` replies and the LLM-judge score; repeated identical openings (6 in dev) fall as Gemini rewords. `EVAL_WITH_GEMINI=1` runs them.
+
+## Live Gemini findings (the project's own key, gemini-3.5-flash-lite, free tier)
+- With pacing (`--delay 3500`, concurrency 1) dev was 137-139/139 with `AI_GENERATED` 40-70%. Two real defects were found and fixed: a rewrite that turned "not in our fleet" into "out of stock" (a refusal must stay a refusal: negation guard) and a Hinglish translation that came back in Indonesian without the question (translations now pass the same fact guard, including "the question must still be asked").
+- Changed expectation: `A05` also accepts "happy to help" (a Gemini-worded thanks).
+- **The key's free-tier daily quota (500 requests) was used up by these runs (`429 generate_content_free_tier_requests, limit: 500`).** The same key serves the production concierge, which falls back to its templates until the quota resets; no further live measurement is possible today.
+- `evals/cycle.ps1` now also kills whatever holds port 4100: an orphaned API from an earlier boot had been serving old code (and a stuck circuit breaker) for several runs; results before that point in the Gemini runs are not trusted.

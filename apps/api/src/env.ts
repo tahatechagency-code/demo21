@@ -99,7 +99,7 @@ export const apiEnvSchema = baseEnvSchema.extend({
   GEMINI_MODEL_ID: z.string().min(1).default('gemini-3.8-flash'),
   GEMINI_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.6),
   GEMINI_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(512),
-  GEMINI_TIMEOUT_MS: z.coerce.number().int().positive().default(8000),
+  GEMINI_TIMEOUT_MS: z.coerce.number().int().positive().default(4000),
   // Thinking effort for the model. "low" is accepted by every current Flash model
   // ("minimal" only by 3.5/3.6) and keeps thought tokens from eating the output
   // budget. If the API rejects the field the provider retries without it.

@@ -10,6 +10,9 @@ Set-Location $root
 Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
   Where-Object { $_.CommandLine -match 'serve-local\.mjs' } |
   ForEach-Object { & taskkill /PID $_.ProcessId /T /F | Out-Null }
+# Whatever still holds the API port (an orphaned server from an earlier boot would keep serving OLD code).
+Get-NetTCPConnection -LocalPort 4100 -State Listen -ErrorAction SilentlyContinue |
+  ForEach-Object { & taskkill /PID $_.OwningProcess /T /F | Out-Null }
 Start-Sleep -Seconds 2
 
 & pnpm --filter '@ai-concierge/domain' --filter '@ai-concierge/contracts' --filter '@ai-concierge/ai' build

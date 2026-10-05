@@ -74,7 +74,7 @@ import { buildPhotoReply } from '../vehiclePhotoReplyService.js';
 import { availabilityReply, estimateText } from './estimate.js';
 import { buildFactsText } from './facts.js';
 import { humanizeReply, makeOptions, translateReply, understand, type GeminiContext } from './gemini.js';
-import { keepsFacts } from './factGuard.js';
+import { factLoss } from './factGuard.js';
 import { arabicReply } from './arabic.js';
 import { loadKnowledge, type Knowledge } from './knowledge.js';
 import {
@@ -228,20 +228,20 @@ function detectLanguage(message: string): Language {
   return hits.length >= 2 ? 'hinglish' : 'en';
 }
 
-const NUMBER_RE = /\d[\d,]*(?:\.\d+)?/g;
-const normNumber = (raw: string): string => String(Number.parseFloat(raw.replace(/,/g, '')));
-
-/** Rewrites a finished reply in the customer's language; only accepted when every number survived. */
+/** Rewrites a finished reply in the customer's language; accepted only when every fact survived (see factGuard). */
 async function localize(ctx: AppContext, k: Knowledge, draft: string, message: string): Promise<string> {
   const language = detectLanguage(message);
   if (language === 'en') return draft;
   const translated = await translateReply(ctx.aiProvider, k.profile.brand, draft, message);
   if (!translated) return draft;
-  const wanted = new Set((draft.match(NUMBER_RE) ?? []).map(normNumber));
-  const got = new Set((translated.match(NUMBER_RE) ?? []).map(normNumber));
-  const sameNumbers = [...wanted].every((n) => got.has(n)) && [...got].every((n) => wanted.has(n));
-  const noLinks = !/https?:\/\/|www\./i.test(translated) || /https?:\/\/|www\./i.test(draft);
-  return sameNumbers && noLinks && translated.length <= 1400 ? translated : draft;
+  // The same fact check as an English rewrite (numbers, car and place names, links, refusals, the question
+  // asked), with room for a language that needs more words.
+  const loss = factLoss(draft, translated, knownNames(k), 2.2);
+  if (loss || translated.length > 1400) {
+    ctx.logger.info({ engine: { translate: loss ?? 'too long' } }, 'concierge translation refused');
+    return draft;
+  }
+  return translated;
 }
 
 /** Every car, place and branch name the business uses: a reworded reply must keep the ones its draft names. */
@@ -276,7 +276,15 @@ async function polish(
     .slice(-4)
     .map((turn) => turn.content.slice(0, 50));
   const reworded = await humanizeReply(ctx.aiProvider, k.profile.brand, draft, input.message, openings);
-  if (!reworded || !keepsFacts(draft, reworded, knownNames(k))) return { text: draft, ai: false };
+  if (!reworded) {
+    ctx.logger.info({ engine: { polish: 'no reply from the model' } }, 'concierge reword skipped');
+    return { text: draft, ai: false };
+  }
+  const loss = factLoss(draft, reworded, knownNames(k));
+  if (loss) {
+    ctx.logger.info({ engine: { polish: loss } }, 'concierge reword refused');
+    return { text: draft, ai: false };
+  }
   return { text: reworded, ai: true };
 }
 
@@ -1479,7 +1487,7 @@ export async function runConciergeEngine(
     case 'REPLY': {
       const worded = decision.keepEnglish
         ? { text: decision.text, ai: false }
-        : await polish(ctx, k, input, decision.text, decision.fixed === true);
+        : await polish(ctx, k, input, decision.text, decision.fixed === true || decision.prefix === true);
       return {
         text: worded.text,
         escalated: false,

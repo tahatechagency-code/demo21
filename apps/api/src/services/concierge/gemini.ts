@@ -270,7 +270,7 @@ export async function translateReply(
 ): Promise<string | null> {
   try {
     const result = await ai.generateStructured({
-      systemInstruction: `You translate ${brand}'s car-rental concierge messages. Rewrite the DRAFT in the same language and tone as the customer's message (English, Hindi, Hinglish or Arabic). Keep EVERY number, price, date, car name, option number and line break exactly as given; write digits as 0-9; add nothing and remove nothing. Return only JSON {"reply": "..."}.`,
+      systemInstruction: `You translate ${brand}'s car-rental concierge messages. Rewrite the DRAFT in the same language and tone as the customer's message (English, Hindi, Hinglish or Arabic). Hinglish means Hindi written in English letters: never answer in Indonesian, Malay or any other language, and keep any question the draft asks. Keep EVERY number, price, date, car name, option number and line break exactly as given; write digits as 0-9; add nothing and remove nothing. Return only JSON {"reply": "..."}.`,
       prompt: `CUSTOMER MESSAGE:\n${sanitizeForProcessing(customerMessage).sanitizedText}\n\nDRAFT:\n"""\n${draft}\n"""`,
       schemaName: 'concierge-translate-v1',
       responseSchema: { type: 'object', properties: { reply: { type: 'string' } }, required: ['reply'] },

@@ -26,6 +26,8 @@ const base = opt('base', process.env.EVAL_BASE_URL ?? 'http://127.0.0.1:4100').r
 const only = opt('only', '');
 const concurrency = Number(opt('concurrency', '4'));
 const verbose = args.includes('--verbose');
+// Pause between turns (ms): keeps a free-tier Gemini key under its requests-per-minute limit.
+const delayMs = Number(opt('delay', '0'));
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 function dubaiToday() {
@@ -69,6 +71,7 @@ function percentile(sorted, p) {
 }
 
 async function send(sessionId, message) {
+  if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
   const started = Date.now();
   let status = 0;
   let json = null;
@@ -93,7 +96,8 @@ function checkTurn(turn, result) {
   const e = turn.expect ?? {};
   const wantStatus = e.status ?? 200;
   if (result.status !== wantStatus) failures.push(`HTTP ${result.status}, wanted ${wantStatus}`);
-  const reply = result.json?.reply?.text ?? '';
+  // "150 AED" and "AED 150" are the same fact in different words.
+  const reply = (result.json?.reply?.text ?? '').replace(/(\d[\d,]*)\s*(?:AED|dirhams?|Dhs)\b/gi, 'AED $1');
   for (const rx of e.mustMatch ?? []) {
     if (!new RegExp(fill(rx), 'i').test(reply)) failures.push(`reply should match /${rx}/`);
   }

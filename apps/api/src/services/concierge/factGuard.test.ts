@@ -32,3 +32,24 @@ describe('keepsFacts', () => {
     expect(numbersOf('AED 1,800')).toEqual(numbersOf('1800 dirhams'));
   });
 });
+
+describe('keepsFacts: meaning of a refusal', () => {
+  it('refuses a rewrite that turns "not in our fleet" into "out of stock"', () => {
+    expect(
+      keepsFacts('Sorry, the Lamborghini Huracan is not in our fleet right now.', 'The Lamborghini Huracan is currently out of stock.', ['Lamborghini Huracan']),
+    ).toBe(false);
+  });
+
+  it('accepts a rewrite that keeps the refusal, in English or Hinglish', () => {
+    expect(keepsFacts('Sorry, the Huracan is not in our fleet.', 'Unfortunately the Huracan is not part of our fleet.', ['Huracan'])).toBe(true);
+    expect(keepsFacts('Sorry, the Huracan is not in our fleet.', 'Huracan hamare paas nahi hai.', ['Huracan'])).toBe(true);
+  });
+});
+
+describe('keepsFacts: a question must still be asked', () => {
+  it('refuses a translation that drops the question', () => {
+    const draft = 'Got it, 7 days with the Lamborghini Urus. Which pickup date would you like to start from?';
+    expect(keepsFacts(draft, 'Lamborghini Urus untuk 7 hari.', ['Lamborghini Urus'])).toBe(false);
+    expect(keepsFacts(draft, 'Theek hai, Lamborghini Urus 7 din ke liye. Kis date se shuru karna hai?', ['Lamborghini Urus'])).toBe(true);
+  });
+});

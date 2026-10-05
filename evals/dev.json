@@ -3,7 +3,7 @@
   { "id": "A02", "cat": "A-small-talk", "turns": [{ "say": "Hello", "expect": { "mustMatch": ["(welcome|hello|hi)"], "escalated": false } }] },
   { "id": "A03", "cat": "A-small-talk", "turns": [{ "say": "assalamu alaikum", "expect": { "mustMatch": ["(welcome|hello|salam|wa alaikum|how can i help)"], "escalated": false, "mustNotMatch": ["could not quite understand"] } }] },
   { "id": "A04", "cat": "A-small-talk", "turns": [{ "say": "good morning", "expect": { "mustMatch": ["(good morning|welcome|hello|hi)"], "escalated": false, "mustNotMatch": ["could not quite understand"] } }] },
-  { "id": "A05", "cat": "A-small-talk", "turns": [{ "say": "thanks", "expect": { "mustMatch": ["(pleasure|welcome|glad|anytime)"], "escalated": false } }] },
+  { "id": "A05", "cat": "A-small-talk", "turns": [{ "say": "thanks", "expect": { "mustMatch": ["(pleasure|welcome|glad|anytime|happy to help)"], "escalated": false } }] },
   { "id": "A06", "cat": "A-small-talk", "turns": [{ "say": "bye", "expect": { "mustMatch": ["(bye|great day|thank you|take care)"], "escalated": false } }] },
   { "id": "A07", "cat": "A-small-talk", "turns": [{ "say": "how are you?", "expect": { "mustMatch": ["(great|good|well|fine)"], "escalated": false } }] },
   { "id": "A08", "cat": "A-small-talk", "turns": [{ "say": "tum bot ho ya insaan?", "expect": { "mustMatch": ["(AI|assistant|bot)", "(team|person|human)"], "escalated": false, "mustNotMatch": ["did you mean one of these"] } }] },
