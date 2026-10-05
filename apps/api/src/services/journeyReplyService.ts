@@ -1,4 +1,5 @@
 import { pickVariant, sanitizeForProcessing, type AIProvider } from '@ai-concierge/ai';
+import { looksIndonesian } from './concierge/factGuard.js';
 import {
   EligibilityIntakeField,
   formatUsdMinor,
@@ -47,6 +48,18 @@ export interface JourneyReplyInput {
   missingInfo: MissingInfoResult;
   /** Both sides of the conversation, oldest first; the last customer turn is the message being answered. */
   turns: RecentTurn[];
+  /** When the model must stop being waited for (epoch ms); past it the vetted draft is sent. */
+  deadlineAt?: number;
+}
+
+/** Below this much time left a model call is not worth starting. */
+const MIN_CALL_BUDGET_MS = 900;
+const MAX_CALL_BUDGET_MS = 4000;
+
+export function callBudget(deadlineAt: number | undefined): number | 'EXHAUSTED' | undefined {
+  if (deadlineAt === undefined) return undefined;
+  const left = deadlineAt - Date.now();
+  return left < MIN_CALL_BUDGET_MS ? 'EXHAUSTED' : Math.min(left, MAX_CALL_BUDGET_MS);
 }
 
 export interface JourneyReply {
@@ -455,8 +468,11 @@ async function rewriteWithGemini(
   input: JourneyReplyInput,
   draft: Draft,
 ): Promise<{ text: string } | { fallbackReason: string }> {
+  const budget = callBudget(input.deadlineAt);
+  if (budget === 'EXHAUSTED') return { fallbackReason: 'TIME_BUDGET' };
   try {
     const result = await deps.aiProvider.generateStructured({
+      ...(budget !== undefined ? { timeoutMs: budget } : {}),
       systemInstruction: SYSTEM_INSTRUCTION,
       prompt: `Conversation so far:\n${buildTranscript(input.turns)}\n\nJourney stage: ${input.progress.stage}\n\nDraft to rewrite:\n"""\n${draft.text}\n"""`,
       schemaName: 'journey-reply-v1',
@@ -469,6 +485,10 @@ async function rewriteWithGemini(
     if (!parsed.success) {
       deps.logger.warn({ modelId: result.modelId }, 'journey reply: schema invalid, using draft');
       return { fallbackReason: 'SCHEMA_INVALID' };
+    }
+    if (looksIndonesian(parsed.data.reply) && !looksIndonesian(draft.text)) {
+      deps.logger.warn({ modelId: result.modelId }, 'journey reply: wrong language, using draft');
+      return { fallbackReason: 'WRONG_LANGUAGE' };
     }
     const violation = checkGrounding(parsed.data.reply, draft);
     if (violation) {

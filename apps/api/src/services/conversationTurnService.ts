@@ -29,6 +29,9 @@ import { notifyOpenCaseOfCustomerMessage, syncJourneyAfterMissingInfo } from './
 import { runConciergeEngine, type EngineOverride } from './concierge/engine.js';
 import { buildPhotoReply } from './vehiclePhotoReplyService.js';
 
+/** How long one customer message may spend waiting on the language model, in total. */
+export const TURN_AI_BUDGET_MS = 4500;
+
 export interface InboundTurnInput {
   channel: Channel;
   /** The customer's identity on the channel (phone number, email address). */
@@ -135,6 +138,9 @@ export async function handleInboundTurn(
   input: InboundTurnInput,
 ): Promise<InboundTurnResult> {
   const tenantId = ctx.config.DEFAULT_TENANT_ID;
+  // Every model call of this turn (reading driver details, wording the reply) shares one time budget: a slow
+  // model never makes the customer wait more than a few seconds, the deterministic wording is sent instead.
+  const deadlineAt = Date.now() + TURN_AI_BUDGET_MS;
 
   const pipeline = await runFullEnquiryPipeline(
     {
@@ -257,6 +263,7 @@ export async function handleInboundTurn(
       missingInfoStatus: missingInfo.status,
       resolvedVehicleId,
       turns,
+      deadlineAt,
     });
   } catch (error) {
     ctx.logger.error({ err: error }, 'concierge engine failed, using the booking pipeline reply');
@@ -290,7 +297,7 @@ export async function handleInboundTurn(
       }
     : await generateJourneyReply(
         { aiProvider: ctx.aiProvider, logger: ctx.logger },
-        { progress, missingInfo, turns },
+        { progress, missingInfo, turns, deadlineAt },
       );
 
   // A short fact in front of the booking reply ("delivery to the Marina is AED 100 ...").

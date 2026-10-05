@@ -13,6 +13,17 @@ export function numbersOf(text: string): Set<string> {
 
 const LINK_RE = /https?:\/\/|www\./i;
 
+/**
+ * Customers write English, Hindi, Hinglish (Hindi in English letters) or Arabic. A model that mistakes
+ * "ek hafta ke liye" for Indonesian answers in Indonesian/Malay; those words give it away.
+ */
+const INDONESIAN_WORDS =
+  /\b(?:yang|untuk|berikut|biaya|kapan|dengan|anda|mulai|estimasi|layanan|keamanan|dapat|silakan|mohon|ingin|tanggal|jemput|pengambilan|lokasi|mobil|sewa|pajak|jumlah)\b/gi;
+
+export function looksIndonesian(text: string): boolean {
+  return (text.match(INDONESIAN_WORDS) ?? []).length >= 2;
+}
+
 /** A refusal or limit in the draft ("not in our fleet", "no delivery fee", "cannot") must still be one after rewording. */
 const NEGATION_IN_DRAFT = /\b(?:not|no|cannot|can't|don't|do not|never|without|nothing|none)\b/i;
 const NEGATION_IN_REWRITE =
@@ -40,6 +51,7 @@ export function factLoss(
     return `numbers changed (missing ${missing.join(',') || '-'}, added ${added.join(',') || '-'})`;
   }
   if (LINK_RE.test(candidate) && !LINK_RE.test(draft)) return 'link added';
+  if (looksIndonesian(candidate) && !looksIndonesian(draft)) return 'wrong language';
   const lowerDraft = draft.toLowerCase();
   const lowerCandidate = candidate.toLowerCase();
   for (const name of names) {

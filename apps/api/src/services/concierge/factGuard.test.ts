@@ -53,3 +53,17 @@ describe('keepsFacts: a question must still be asked', () => {
     expect(keepsFacts(draft, 'Theek hai, Lamborghini Urus 7 din ke liye. Kis date se shuru karna hai?', ['Lamborghini Urus'])).toBe(true);
   });
 });
+
+describe('keepsFacts: the reply stays in the customer\'s language', () => {
+  const draft = 'Got it, 7 days with the Lamborghini Urus. Total: AED 25,777.50. Which pickup date would you like to start from?';
+
+  it('refuses a reply that came back in Indonesian', () => {
+    const indonesian = 'Baik, 7 hari dengan Lamborghini Urus. Berikut estimasi biaya: Total AED 25,777.50. Kapan tanggal jemput yang Anda inginkan?';
+    expect(keepsFacts(draft, indonesian, ['Lamborghini Urus'])).toBe(false);
+  });
+
+  it('accepts Hinglish with the same facts', () => {
+    const hinglish = 'Theek hai, Lamborghini Urus 7 din ke liye. Total AED 25,777.50. Aap kis date se shuru karna chahenge?';
+    expect(keepsFacts(draft, hinglish, ['Lamborghini Urus'])).toBe(true);
+  });
+});

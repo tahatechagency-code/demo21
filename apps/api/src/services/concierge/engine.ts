@@ -75,6 +75,7 @@ import { availabilityReply, estimateText } from './estimate.js';
 import { buildFactsText } from './facts.js';
 import { humanizeReply, makeOptions, translateReply, understand, type GeminiContext } from './gemini.js';
 import { factLoss } from './factGuard.js';
+import { callBudget } from '../journeyReplyService.js';
 import { arabicReply } from './arabic.js';
 import { loadKnowledge, type Knowledge } from './knowledge.js';
 import {
@@ -111,6 +112,8 @@ export interface EngineInput {
   missingInfoStatus: string;
   resolvedVehicleId: string | null;
   turns: RecentTurn[];
+  /** When the model must stop being waited for (epoch ms); past it the deterministic wording is sent. */
+  deadlineAt?: number;
 }
 
 export interface EngineOverride {
@@ -229,10 +232,16 @@ function detectLanguage(message: string): Language {
 }
 
 /** Rewrites a finished reply in the customer's language; accepted only when every fact survived (see factGuard). */
-async function localize(ctx: AppContext, k: Knowledge, draft: string, message: string): Promise<string> {
+async function localize(
+  ctx: AppContext,
+  k: Knowledge,
+  draft: string,
+  message: string,
+  timeoutMs?: number,
+): Promise<string> {
   const language = detectLanguage(message);
   if (language === 'en') return draft;
-  const translated = await translateReply(ctx.aiProvider, k.profile.brand, draft, message);
+  const translated = await translateReply(ctx.aiProvider, k.profile.brand, draft, message, timeoutMs);
   if (!translated) return draft;
   // The same fact check as an English rewrite (numbers, car and place names, links, refusals, the question
   // asked), with room for a language that needs more words.
@@ -266,8 +275,10 @@ async function polish(
   fixed: boolean,
 ): Promise<{ text: string; ai: boolean }> {
   if (ctx.aiProviderStatus !== 'CONFIGURED') return { text: draft, ai: false };
+  const budget = callBudget(input.deadlineAt);
+  if (budget === 'EXHAUSTED') return { text: draft, ai: false };
   if (detectLanguage(input.message) !== 'en') {
-    const text = await localize(ctx, k, draft, input.message);
+    const text = await localize(ctx, k, draft, input.message, budget);
     return { text, ai: text !== draft };
   }
   if (fixed || draft.length > 700) return { text: draft, ai: false };
@@ -275,7 +286,7 @@ async function polish(
     .filter((turn) => turn.role === 'assistant')
     .slice(-4)
     .map((turn) => turn.content.slice(0, 50));
-  const reworded = await humanizeReply(ctx.aiProvider, k.profile.brand, draft, input.message, openings);
+  const reworded = await humanizeReply(ctx.aiProvider, k.profile.brand, draft, input.message, openings, budget);
   if (!reworded) {
     ctx.logger.info({ engine: { polish: 'no reply from the model' } }, 'concierge reword skipped');
     return { text: draft, ai: false };

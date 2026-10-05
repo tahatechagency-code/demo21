@@ -267,6 +267,7 @@ export async function translateReply(
   brand: string,
   draft: string,
   customerMessage: string,
+  timeoutMs = 9_000,
 ): Promise<string | null> {
   try {
     const result = await ai.generateStructured({
@@ -276,7 +277,7 @@ export async function translateReply(
       responseSchema: { type: 'object', properties: { reply: { type: 'string' } }, required: ['reply'] },
       temperature: 0.2,
       maxOutputTokens: 900,
-      timeoutMs: 9_000,
+      timeoutMs: Math.min(9_000, timeoutMs),
     });
     const parsed = localizeSchema.safeParse(result.json);
     return parsed.success ? parsed.data.reply.trim() : null;
@@ -296,6 +297,7 @@ export async function humanizeReply(
   draft: string,
   customerMessage: string,
   recentOpenings: string[],
+  timeoutMs = 3_500,
 ): Promise<string | null> {
   try {
     const result = await ai.generateStructured({
@@ -305,7 +307,7 @@ export async function humanizeReply(
       responseSchema: { type: 'object', properties: { reply: { type: 'string' } }, required: ['reply'] },
       temperature: 0.7,
       maxOutputTokens: 700,
-      timeoutMs: 3_500,
+      timeoutMs: Math.min(3_500, timeoutMs),
     });
     const parsed = localizeSchema.safeParse(result.json);
     return parsed.success ? parsed.data.reply.trim() : null;
