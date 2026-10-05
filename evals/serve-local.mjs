@@ -3,10 +3,22 @@
 // production starter fleet, no Gemini key (the deterministic engine is what is measured), no outbound channels.
 // Needs Postgres on :5432 and Redis on :6379. Usage: node evals/serve-local.mjs   (leave it running)
 import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+// Keys for the optional live runs live in .env.eval (git-ignored): GEMINI_API_KEY=... and GOOGLE_MAPS_API_KEY=...
+const envFile = path.join(root, '.env.eval');
+if (existsSync(envFile)) {
+  for (const line of readFileSync(envFile, 'utf8').split(/\r?\n/)) {
+    const match = /^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line);
+    if (match && !line.trim().startsWith('#') && process.env[match[1]] === undefined) {
+      process.env[match[1]] = match[2].replace(/^["']|["']$/g, '');
+    }
+  }
+}
 const env = {
   ...process.env,
   NODE_ENV: 'development',
@@ -27,7 +39,8 @@ const env = {
 // Gemini is off unless the run asks for it (EVAL_WITH_GEMINI=1 with GEMINI_API_KEY set), so the deterministic
 // engine is what is measured by default. Maps is never used by the evals.
 if (process.env.EVAL_WITH_GEMINI !== '1') delete env.GEMINI_API_KEY;
-delete env.GOOGLE_MAPS_API_KEY;
+// Google Maps (real road distance for the 100 km rule) is used only when asked for: EVAL_WITH_MAPS=1.
+if (process.env.EVAL_WITH_MAPS !== '1') delete env.GOOGLE_MAPS_API_KEY;
 
 function run(args, label) {
   const result = spawnSync('pnpm', args, { cwd: root, env, stdio: 'inherit', shell: true });
