@@ -22,8 +22,46 @@ const EMIRATE_BY_NAME: Record<string, EmirateValue> = {
   'fujairah emirate': Emirate.FUJAIRAH,
 };
 
+/** A match Mapbox itself is not fairly sure of ("Dubai Frame" -> a side street) is no match: the customer is asked for a pin. */
+const MIN_RELEVANCE = 0.8;
+
+/** The place words of a delivery sentence: "can you deliver to Dubai Frame please" -> "Dubai Frame". */
+export function placeQuery(text: string): string {
+  return text
+    .replace(/[?!.]+/g, ' ')
+    .replace(/^\s*(?:hi|hello|hey|please|pls|ok|okay|and)\b[\s,]*/i, '')
+    .replace(
+      /^\s*(?:(?:can|could|will|would) (?:you|u|we) |do (?:you|u) |is it possible to |i (?:need|want|would like)(?: the car| a car| it)? |mujhe |kya (?:aap |tum )?)?(?:deliver(?:y| it| the car)?(?: possible)?|bring (?:it|the car)|come|drop(?: it| the car)?|send (?:it|the car)|pick ?-?up|collect(?:ion)?)(?: it| the car| a car)?(?: from| to| at| in| near)?\s+/i,
+      '',
+    )
+    .replace(/\b(?:please|pls|possible|available|milegi|milega|hogi|hoga|ho sakti hai|ho sakta hai|pe delivery|me delivery|par delivery)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const GENERIC_WORDS = new Set(['the', 'of', 'park', 'tower', 'towers', 'center', 'centre', 'street', 'road', 'village', 'island', 'hotel', 'resort', 'city', 'area', 'near', 'dubai', 'abu', 'dhabi', 'sharjah']);
+
+function normalised(text: string): string {
+  return text.toLowerCase().replace(/['’`]/g, '');
+}
+
+/** At least one distinctive word of the query appears in the (first parts of the) match; a query of only generic words is accepted on relevance alone. */
+export function namesTheQuery(query: string, matchName: string): boolean {
+  const words = normalised(query)
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word.length >= 3 && !GENERIC_WORDS.has(word));
+  if (words.length === 0) return true;
+  const head = normalised(matchName.split(',').slice(0, 2).join(' '));
+  return words.some((word) => head.includes(word));
+}
+
+function titleCase(text: string): string {
+  return text.replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+}
+
 interface GeocodeResponse {
   features?: {
+    relevance?: number;
     place_name?: string;
     text?: string;
     center?: [number, number];
@@ -64,20 +102,25 @@ export class MapboxProvider implements MapsProvider {
   }
 
   async geocode(query: string): Promise<GeoPlace | null> {
-    const text = query.trim().slice(0, 200);
+    const text = placeQuery(query).slice(0, 200);
     if (!text) return null;
     const json = await this.getJson<GeocodeResponse>(
       `/geocoding/v5/mapbox.places/${encodeURIComponent(text)}.json`,
-      { country: 'ae', limit: '1', types: 'poi,address,neighborhood,locality,place,district' },
+      { country: 'ae', limit: '1', language: 'en', types: 'poi,neighborhood,locality,place,district,address' },
     );
     const hit = json?.features?.[0];
+    if (typeof hit?.relevance === 'number' && hit.relevance < MIN_RELEVANCE) return null;
     const lng = hit?.center?.[0];
     const lat = hit?.center?.[1];
     if (typeof lat !== 'number' || typeof lng !== 'number') return null;
     const region = hit?.context?.find((part) => part.id?.startsWith('region'))?.text;
     const emirate = region ? EMIRATE_BY_NAME[region.toLowerCase()] : undefined;
     if (!emirate) return null;
-    return { name: (hit?.place_name ?? text).split(',').slice(0, 2).join(',').trim(), lat, lng, emirate };
+    // The match must be about what was asked: a name word of the query has to appear in the match's own name
+    // ("Mall of the Emirates" -> a village in Ras Al Khaimah is refused, so the customer is asked for a pin).
+    if (!namesTheQuery(text, hit?.place_name ?? '')) return null;
+    // The customer's own words are the name shown back to them, never Mapbox's (sometimes Arabic) label.
+    return { name: titleCase(text), lat, lng, emirate };
   }
 
   async drivingKm(

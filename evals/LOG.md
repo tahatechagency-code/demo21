@@ -32,3 +32,7 @@ Not measurable without a Gemini key in the run: share of `AI_GENERATED` replies 
 - Changed expectation: `A05` also accepts "happy to help" (a Gemini-worded thanks).
 - **The key's free-tier daily quota (500 requests) was used up by these runs (`429 generate_content_free_tier_requests, limit: 500`).** The same key serves the production concierge, which falls back to its templates until the quota resets; no further live measurement is possible today.
 - `evals/cycle.ps1` now also kills whatever holds port 4100: an orphaned API from an earlier boot had been serving old code (and a stuck circuit breaker) for several runs; results before that point in the Gemini runs are not trusted.
+
+## Mapbox (project owner's own public token, kept only in the git-ignored `.env.eval`)
+- Directions work (Mussafah -> Al Ain 143 km vs the 141 km estimate). Geocoding of places the gazetteer does not know was wrong for some landmarks ("Dubai Frame" -> a side street; "Mall of the Emirates" -> a village in Ras Al Khaimah, which would have charged the wrong emirate's fee), so a geocoded place is accepted only when Mapbox's relevance is >= 0.8 AND a distinctive word of the query is in the match's name; the customer's own words are shown back, never Mapbox's label (sometimes Arabic). Otherwise the customer is asked for a pin (safe failure).
+- dev 139/139, holdout 117/117, holdout2 99/99 with Mapbox on (p95 ~1.3 s).

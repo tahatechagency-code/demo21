@@ -66,3 +66,42 @@ describe('createMapsProvider', () => {
     expect(createMapsProvider({} as never)).toBeUndefined();
   });
 });
+
+describe('Mapbox place queries and uncertain matches', () => {
+  it('reduces a delivery sentence to the place', async () => {
+    const { placeQuery } = await import('./mapboxProvider.js');
+    expect(placeQuery('can you deliver to Dubai Frame please?')).toBe('Dubai Frame');
+    expect(placeQuery('do you deliver to Zabeel Park')).toBe('Zabeel Park');
+    expect(placeQuery('delivery to Madinat Zayed')).toBe('Madinat Zayed');
+    expect(placeQuery('Zabeel Park pe delivery milegi?')).toBe('Zabeel Park');
+  });
+
+  it('refuses a match Mapbox is unsure of (the customer is asked for a pin instead)', async () => {
+    const { impl } = fakeFetch({
+      features: [{ relevance: 0.5, place_name: 'Flame Tree Ridge Street, Dubai', center: [55.3, 25.2], context: [{ id: 'region.1', text: 'Dubai' }] }],
+    });
+    expect(await new MapboxProvider('t', impl).geocode('Dubai Frame')).toBeNull();
+  });
+
+  it('asks Mapbox for English names inside the UAE', async () => {
+    const { impl, seen } = fakeFetch({ features: [] });
+    await new MapboxProvider('t', impl).geocode('Dubai Frame');
+    expect(seen[0]!.url).toContain('language=en');
+    expect(seen[0]!.url).toContain('country=ae');
+  });
+});
+
+describe('Mapbox matches must be about what was asked', () => {
+  const dubai = { center: [55.3, 25.2], relevance: 0.95, context: [{ id: 'region.1', text: 'Dubai' }] };
+
+  it('refuses a match whose name has nothing of the query', async () => {
+    const { impl } = fakeFetch({ features: [{ ...dubai, place_name: 'Al Sall, Ras Al Khaimah, United Arab Emirates', context: [{ id: 'region.2', text: 'Ras Al Khaimah' }] }] });
+    expect(await new MapboxProvider('t', impl).geocode('deliver to Mall of the Emirates')).toBeNull();
+  });
+
+  it('accepts a match that names the place and shows the customer\'s own words', async () => {
+    const { impl } = fakeFetch({ features: [{ ...dubai, place_name: 'مدينة زايد, Madinat Zayed, Abu Dhabi, United Arab Emirates', context: [{ id: 'region.3', text: 'Abu Dhabi' }] }] });
+    const place = await new MapboxProvider('t', impl).geocode('delivery to Madinat Zayed');
+    expect(place).toMatchObject({ name: 'Madinat Zayed', emirate: 'ABU_DHABI' });
+  });
+});
