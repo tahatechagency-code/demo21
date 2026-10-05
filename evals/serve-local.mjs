@@ -39,8 +39,15 @@ const env = {
 // Gemini is off unless the run asks for it (EVAL_WITH_GEMINI=1 with GEMINI_API_KEY set), so the deterministic
 // engine is what is measured by default. Maps is never used by the evals.
 if (process.env.EVAL_WITH_GEMINI !== '1') delete env.GEMINI_API_KEY;
-// Google Maps (real road distance for the 100 km rule) is used only when asked for: EVAL_WITH_MAPS=1.
-if (process.env.EVAL_WITH_MAPS !== '1') delete env.GOOGLE_MAPS_API_KEY;
+// Real road distances for the 100 km rule are used only when asked for: EVAL_WITH_MAPS=1 uses MAPBOX_ACCESS_TOKEN or
+// GOOGLE_MAPS_API_KEY when set, else the public OSRM demo server (no key, light testing only).
+if (process.env.EVAL_WITH_MAPS !== '1') {
+  delete env.GOOGLE_MAPS_API_KEY;
+  delete env.MAPBOX_ACCESS_TOKEN;
+  delete env.OSRM_BASE_URL;
+} else if (!env.GOOGLE_MAPS_API_KEY && !env.MAPBOX_ACCESS_TOKEN && !env.OSRM_BASE_URL) {
+  env.OSRM_BASE_URL = 'https://router.project-osrm.org';
+}
 
 function run(args, label) {
   const result = spawnSync('pnpm', args, { cwd: root, env, stdio: 'inherit', shell: true });

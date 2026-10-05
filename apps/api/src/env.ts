@@ -121,6 +121,10 @@ export const apiEnvSchema = baseEnvSchema.extend({
   // place the built-in UAE gazetteer does not know. Optional; without it the gazetteer's coordinates
   // and a road-distance estimate are used, and an unknown place is simply asked for again.
   GOOGLE_MAPS_API_KEY: z.string().trim().min(1).optional(),
+  // Mapbox (Geocoding + Directions) does the same job and wins when both are set (see lib/mapsFactory.ts).
+  MAPBOX_ACCESS_TOKEN: z.string().trim().min(1).optional(),
+  // An OSRM routing server for road distances only (no key); the public demo server is for light testing.
+  OSRM_BASE_URL: z.string().trim().url().optional(),
 
   // Twilio — staff SMS notification only (EscalationCase alerts), never a
   // customer-facing channel. All optional; unset means NOT_CONFIGURED, same

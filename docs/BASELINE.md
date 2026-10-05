@@ -44,3 +44,8 @@ Replies Gemini worded are reported as `AI_GENERATED`; the runner prints its shar
 
 ## Gates the runner prints
 `generic fallback %` (target <= 3), `AI_GENERATED %`, p50 / p95 latency (targets 1.5 s / 5 s), HTTP errors (0), repeated openings (> 3 identical first 60 characters), replies over 3 lines / 60 words (lists and quotes exempt).
+
+## Real road distances
+- Code: Mapbox (MAPBOX_ACCESS_TOKEN) is preferred, then Google (GOOGLE_MAPS_API_KEY), then an OSRM server (OSRM_BASE_URL, no key); with none, the built-in estimate is used (see apps/api/src/lib/mapsFactory.ts).
+- Check: node evals/roads-check.mjs compares the estimate with real roads for all 53 known places: 0 decide differently (Al Ain 141 km estimated, 140 km real; Hatta 57 vs 72, still inside 100).
+- Run the suites with real roads: set EVAL_WITH_MAPS=1 before evals/serve-local.mjs (dev 139/139 with OSRM, p95 1.8 s).

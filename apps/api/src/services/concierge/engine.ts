@@ -66,7 +66,7 @@ import {
   type OutboundAttachment,
 } from '@ai-concierge/domain';
 import type { AppContext } from '../../context.js';
-import { GoogleMapsProvider } from '../../lib/googleMapsProvider.js';
+import { createMapsProvider } from '../../lib/mapsFactory.js';
 import type { RecentTurn } from '../conversationalReplyService.js';
 import type { JourneyProgress } from '../journeyProgress.js';
 import { escalateJourney } from '../journeyService.js';
@@ -349,7 +349,7 @@ const WANT_AT_PLACE =
   /\b(?:need|want|chahiye|chahie|require|looking for)\b.{0,40}\b(?:at|in|near|from|pe|par|mein|me)\b|\b(?:pe|par|mein)\b.{0,15}\b(?:car|gaadi|gadi)\b|\bpick ?-?up\b.{0,30}\b(?:from|at|in)\b/i;
 
 function mapsFor(ctx: AppContext): MapsProvider | undefined {
-  return ctx.config.GOOGLE_MAPS_API_KEY ? new GoogleMapsProvider(ctx.config.GOOGLE_MAPS_API_KEY) : undefined;
+  return createMapsProvider(ctx.config);
 }
 
 function branchLabel(name: string): string {

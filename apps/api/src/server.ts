@@ -26,7 +26,7 @@ import { buildApp } from './app.js';
 import type { AppContext } from './context.js';
 import { loadApiEnv } from './env.js';
 import { createAIProvider } from './lib/geminiProvider.js';
-import { GoogleMapsProvider } from './lib/googleMapsProvider.js';
+import { createMapsProvider } from './lib/mapsFactory.js';
 import { createNotificationProvider } from './lib/notificationProvider.js';
 import { createPostEnquiryQueue } from './lib/queue.js';
 import { createRedisClient } from './lib/redis.js';
@@ -57,9 +57,10 @@ async function main(): Promise<void> {
   const intentEngine = new RuleBasedIntentEngine();
   // The delivery rule (branches, 100 km) judges every pickup the booking steps read — the same rule the
   // concierge engine uses for delivery questions.
+  const maps = createMapsProvider(config);
   const dateLocationOrchestrator = new DateLocationExtractionOrchestrator({
     profile: resolveBusinessProfile(config.BUSINESS_PROFILE_JSON, config.BUSINESS_NAME),
-    ...(config.GOOGLE_MAPS_API_KEY ? { maps: new GoogleMapsProvider(config.GOOGLE_MAPS_API_KEY) } : {}),
+    ...(maps ? { maps } : {}),
   });
   const vehicleOrchestrator = new VehicleDeterminationOrchestrator({
     catalogProvider: new PrismaVehicleCatalogProvider(prisma),
