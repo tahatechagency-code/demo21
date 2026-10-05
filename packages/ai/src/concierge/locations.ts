@@ -331,13 +331,6 @@ export function branchNames(profile: BusinessProfile): string[] {
   return profile.branches.filter((branch) => branch.confirmed).map((branch) => branch.name);
 }
 
-/** Short place labels for suggestions ("Dubai Airport T1, Al Quoz, ..."). */
-export function branchShortNames(profile: BusinessProfile): string[] {
-  return profile.branches
-    .filter((branch) => branch.confirmed)
-    .map((branch) => branch.name.split(' (')[0]!.split(',')[0]!.trim());
-}
-
 export function emirateLabel(emirate: EmirateValue): string {
   return EMIRATE_LABEL[emirate];
 }

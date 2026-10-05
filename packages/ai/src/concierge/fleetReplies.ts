@@ -7,7 +7,6 @@ import {
   type FleetModel,
   type VehicleMention,
 } from './fleetKnowledge.js';
-import { branchShortNames } from './locations.js';
 import type { BusinessProfile } from './profile.js';
 import { pickVariant } from './variants.js';
 
@@ -133,24 +132,13 @@ export function notInFleetReply(
   fleet: FleetKnowledge,
   profile: BusinessProfile,
 ): string {
-  const lines: string[] = [`Sorry, the ${mention.mention} is not in our fleet right now.`];
-  if (mention.sameBrand.length > 0) {
-    lines.push(
-      `From ${mention.sameBrand[0]!.make} we do have: ${joinList(mention.sameBrand.slice(0, 4).map(shortLine))}.`,
-    );
-  }
-  const popular = popularModels(fleet, profile, 4, {
-    exclude: mention.sameBrand,
-    onlyAvailable: true,
-  });
-  if (popular.length > 0) {
-    lines.push(`Our most popular cars right now: ${joinList(popular.map(shortLine))}.`);
-  }
-  lines.push(
-    'Tell me which one you like, or reply LIST to see every model. Pickup is also possible from another place: ' +
-      `${joinList(branchShortNames(profile).slice(0, 5))}.`,
-  );
-  return lines.join(' ');
+  const close = mention.sameBrand.length > 0
+    ? mention.sameBrand.slice(0, 3)
+    : popularModels(fleet, profile, 3, { exclude: mention.sameBrand, onlyAvailable: true });
+  const head = `Sorry, the ${mention.mention} is not in our fleet right now.`;
+  if (close.length === 0) return `${head} Reply LIST to see every model.`;
+  const intro = mention.sameBrand.length > 0 ? `From ${mention.sameBrand[0]!.make} we do have:` : 'Our most popular cars right now:';
+  return `${head} ${intro}\n${close.map((model) => `• ${shortLine(model)}`).join('\n')}\n\nTell me which one you like, or reply LIST to see every model.`;
 }
 
 /** "LIST": the complete fleet, grouped by brand, straight from the rows. */

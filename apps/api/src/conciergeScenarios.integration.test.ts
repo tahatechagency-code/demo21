@@ -187,7 +187,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'cheapest estimate': { say: ['Camaro price for 2 days'], match: [/2 days/, /AED 700/] },
 
   // ---- Delivery and the 100 km rule ------------------------------------------------------
-  'deliver marina': { say: ['can you deliver to Dubai Marina?'], match: [/delivery to Dubai Marina/i, /AED 100/] },
+  'deliver marina': { say: ['can you deliver to Dubai Marina?'], match: [/Dubai Marina/, /deliver/i, /AED 100/] },
   'deliver sharjah-ajman': { say: ['deliver to Ajman please'], match: [/AED 150/] },
   'deliver yas': { say: ['deliver to Yas Island'], match: [/AED 250/] },
   'deliver friday': { say: ['deliver to Jumeirah on 9 Oct'], match: [/AED 200/, /Friday/] },

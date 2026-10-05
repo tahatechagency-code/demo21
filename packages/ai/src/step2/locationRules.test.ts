@@ -86,3 +86,11 @@ describe('the delivery rule on the booking path', () => {
     expect(r.codes).toContain('UNSUPPORTED_LOCATION');
   });
 });
+
+describe('a place abroad inside a delivery sentence', () => {
+  it('"drop it to Muscat airport" is outside the UAE, not a pin to ask for', async () => {
+    const r = await read('can you drop it to Muscat airport');
+    expect(r.pickup).toBeNull();
+    expect(r.codes).toContain('UNSUPPORTED_LOCATION');
+  });
+});

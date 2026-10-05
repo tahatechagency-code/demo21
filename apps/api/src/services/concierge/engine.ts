@@ -742,14 +742,22 @@ async function understandWithRules(base: UnderstandContext): Promise<Decision> {
     } else if (place.kind === 'UNKNOWN') {
       // A delivery asked for a place the gazetteer does not know: Google Maps (when configured) tries it;
       // otherwise the customer is asked once for the exact area or a pin — never a guess about distance.
+      // A place outside the UAE ("drop it to Muscat airport") is not a pin to ask for: say so.
+      const abroad = await findMessageProblem(ctx, original);
+      if (abroad?.kind === 'UNSUPPORTED_LOCATION') {
+        return { kind: 'REPLY', stage: ConciergeStage.ANSWER, text: await problemText(abroad, async () => '') };
+      }
       const decision = await deliveryDecisionFor(ctx, k, input, message);
-      const fees = answerPolicy('how much is delivery fee', policyContext(k));
+      // The fee table is added only when the customer actually asked about fees.
+      const fees = detectPolicyTopics(original).includes('DELIVERY_FEES')
+        ? answerPolicy('how much is delivery fee', policyContext(k))
+        : null;
       return {
         kind: 'REPLY',
         stage: ConciergeStage.ANSWER,
         text:
-          decision.kind === 'NEEDS_PIN'
-            ? `${deliveryText(decision, k, input)} ${fees?.text ?? ''}`.trim()
+          decision.kind === 'NEEDS_PIN' && fees
+            ? `${deliveryText(decision, k, input)} ${fees.text}`
             : deliveryText(decision, k, input),
       };
     } else {

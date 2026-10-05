@@ -320,15 +320,17 @@ export function answerPolicy(message: string, ctx: PolicyContext, only?: PolicyT
             : `All our prices and quotes are in ${ctx.profile.currency}.`,
       };
     }
-    case 'BRANCHES':
+    case 'BRANCHES': {
+      const branchLines = ctx.profile.branches
+        .filter((branch) => branch.confirmed)
+        .map((branch) => `• ${branch.name} (${emirateLabel(branch.emirate)})`)
+        .join('\n');
       return {
         kind: 'ANSWER',
         topic,
-        text: `Our pickup branches: ${ctx.profile.branches
-          .filter((branch) => branch.confirmed)
-          .map((branch) => `${branch.name} (${emirateLabel(branch.emirate)})`)
-          .join('; ')}. We can also deliver within ${delivery.maxRoadKm} km of a branch (${describeFee({ base: delivery.feeByEmirate[Emirate.DUBAI], surcharges: [], total: delivery.feeByEmirate[Emirate.DUBAI] }, ctx.profile.currency)} in Dubai). Where would you like the car?`,
+        text: `Our pickup branches:\n${branchLines}\n\nWe can also deliver within ${delivery.maxRoadKm} km of a branch (${describeFee({ base: delivery.feeByEmirate[Emirate.DUBAI], surcharges: [], total: delivery.feeByEmirate[Emirate.DUBAI] }, ctx.profile.currency)} in Dubai). Where would you like the car?`,
       };
+    }
     case 'PAYMENT_LINK':
       return {
         kind: 'ANSWER',
