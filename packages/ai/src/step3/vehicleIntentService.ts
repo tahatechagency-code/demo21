@@ -284,7 +284,7 @@ export class VehicleIntentService {
       const key = `${candidate.make} ${candidate.model}`;
       cars.set(key, [...(cars.get(key) ?? []), candidate]);
     }
-    if (cars.size < 2 || !/\b(?:change|badal\w*|instead|replace|switch|rather|jagah|kar ?do|karo)\b/i.test(line)) {
+    if (cars.size < 2 || !/\b(?:change|badal\w*|instead|replace|switch|rather|jagah|kar ?do|karo|nahi|nahin|not)\b/i.test(line)) {
       return proposal;
     }
     const lower = line.toLowerCase();

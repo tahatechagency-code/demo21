@@ -21,7 +21,8 @@
 |---|---|---|
 | `evals/dev.json` | 139 | the mandatory known failures + paraphrases; used while fixing |
 | `evals/holdout.json` | 117 | paraphrased (Hinglish, typos, word order); looked at once to find root causes |
-| `evals/holdout2.json` | 99 | written afterwards, never fitted to: measures real generalisation |
+| `evals/holdout2.json` | 99 | written afterwards, fitted only once (7 failures fixed) |
+| `evals/holdout3.json` | 92 | messy WhatsApp-style (typos, short forms, Hinglish); first run 95.7%, 4 root causes fixed |
 
 All business numbers (rates) come from the seed fleet at run time (`{{rate:Urus}}`); dates are relative to today (`{{md+1}}`).
 

@@ -205,7 +205,7 @@ const RULES: Rule[] = [
   rule(
     'PAYMENT_REFUND',
     0.96,
-    /\b(?:refund|chargeback|money back|charged twice|double charge|overcharg\w*|dispute\w*)\b/,
+    /\b(?:refund|chargeback|money back|charged twice|double charge|overcharg\w*|dispute\w*|(?:paisa|paise|paisay|paisa|rupee|rupay|dirham)s?\s+(?:wapas|vapas|return|lauta\w*))\b/,
   ),
   rule(
     'PAYMENT_REFUND',
@@ -290,7 +290,7 @@ const RULES: Rule[] = [
   rule(
     'GREETING',
     0.9,
-    /^(?:hi|hello|hey|salam|salaam|assalam\w*|namaste|hola|good (?:morning|evening|afternoon))\b(?:\s+\w+){0,3}$/,
+    /^(?:hi+|hello+|hel+o+|hlo+|helo+|hey+|hy+|sup|yo|salam|salaam|assalam\w*|namaste|hola|good (?:morning|evening|afternoon))\b(?:\s+\w+){0,3}$/,
   ),
   // Arabic and Hindi greetings.
   rule(

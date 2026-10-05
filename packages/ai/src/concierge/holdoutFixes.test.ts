@@ -55,3 +55,15 @@ describe('policy wording from the second holdout', () => {
     expect(detectPolicyTopics(text)).toContain(topic);
   });
 });
+
+describe('holdout 3 wording', () => {
+  it.each(['mera paisa wapas karo', 'paise wapas chahiye', 'refund do'])('"%s" is a refund request', (text) => {
+    expect(classifyFrontDoor(text, none).intent).toBe('PAYMENT_REFUND');
+  });
+});
+
+describe('greeting typos', () => {
+  it.each(['hlo', 'helo', 'hii', 'heyy', 'hellooo', 'yo'])('"%s" is a greeting', (text) => {
+    expect(classifyFrontDoor(text, none).intent).toBe('GREETING');
+  });
+});

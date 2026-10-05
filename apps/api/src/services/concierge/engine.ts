@@ -294,7 +294,7 @@ async function polish(
 
 const THANKS_RE =
   /^(?:ok(?:ay)?[ ,]*)?(?:thanks?|thank you|thank u|thx|ty|shukriya|shukria|dhanyavad|syukran|شكرا|great,? thanks?)\b.{0,25}$/i;
-const BYE_RE = /^(?:bye|goodbye|good ?bye|see you|see ya|take care|khuda hafiz|allah hafiz|alvida|ma salama)\b.{0,20}$/i;
+const BYE_RE = /^(?:bye|goodbye|good ?bye|good ?night|gn|shab ?b?a ?khair|see you|see ya|take care|khuda hafiz|allah hafiz|alvida|ma salama)\b.{0,20}$/i;
 const IDENTITY_RE =
   /\b(?:are you (?:a )?(?:bot|robot|ai|machine|human|real|person)|am i (?:talking|speaking|chatting) (?:to|with)|who are you|who am i (?:talking|speaking)|real person|tum kaun|aap kaun|(?:bot|robot|insaan|insan|aadmi|admi|human|machine|ai)\s+(?:ho|hai|hain)(?:\s+ya\s+\w+)?|(?:insaan|insan|aadmi|admi)\s+ho)\b/i;
 const HOW_ARE_YOU_RE =
@@ -567,7 +567,7 @@ const FIRST_PERSON_RE = /\b(?:i|i'm|im|i've|ive|my|mine|me|mera|meri|mere|maine|
 const QUESTION_START =
   /^\s*(?:what|which|how|where|when|why|who|whom|whose|can|could|do|does|did|is|are|am|was|will|would|should|may|might|any|kya|kitna|kitne|kaun|kaunsi|konsi|kab|kahan|kaise|kyun|क्या|कितना|ما|هل|كم|كيف|أين|متى)\b/i;
 const QUESTION_CUES =
-  /\b(?:tell me|let me know|want to know|wanted to know|need to know|batao|bataiye|bataye|puchna|pata karna|jaanna|kya|kaise|kitna|kitne|kab|kahan|kaun|kaunsi|konsi|hota|hoti|milega|milegi|hoga)\b|[?؟]/i;
+  /\b(?:tell me|let me know|want to know|wanted to know|need to know|batao|bataiye|bataye|puchna|pata karna|jaanna|kya|kaise|kitna|kitne|kitni|kab|kahan|kaun|kaunsi|kaunsa|kaunse|konsi|konsa|kyun|kyu|hota|hoti|milega|milegi|hoga)\b|[?؟]/i;
 
 /** A question, or a very short topic query ("min age?", "deposit"). A statement about oneself is not one. */
 function isQuestionLike(text: string): boolean {
