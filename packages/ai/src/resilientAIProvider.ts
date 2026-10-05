@@ -18,6 +18,9 @@ export interface ResilientAIProviderOptions {
   rateLimiter?: RateLimiterOptions;
 }
 
+/** How long the AI provider is left alone after the upstream answered "429 quota exceeded". */
+export const QUOTA_HOLD_MS = 5 * 60_000;
+
 const DEFAULT_OPTIONS: Required<ResilientAIProviderOptions> = {
   timeoutMs: 8000,
   circuitBreaker: { failureThreshold: 5, resetTimeoutMs: 30_000 },
@@ -50,9 +53,17 @@ export class ResilientAIProvider implements AIProvider {
 
   async generateStructured(input: GenerateStructuredInput): Promise<GenerateStructuredResult> {
     this.rateLimiter.acquireOrThrow();
-    return this.circuitBreaker.execute(() =>
-      withTimeout(() => this.inner.generateStructured(input), input.timeoutMs ?? this.timeoutMs),
-    );
+    try {
+      return await this.circuitBreaker.execute(() =>
+        withTimeout(() => this.inner.generateStructured(input), input.timeoutMs ?? this.timeoutMs),
+      );
+    } catch (error) {
+      // "Quota exceeded" does not clear in seconds: stop calling (and stop making customers wait) for a while.
+      if ((error as { details?: { status?: number } } | null)?.details?.status === 429) {
+        this.circuitBreaker.trip(QUOTA_HOLD_MS);
+      }
+      throw error;
+    }
   }
 
   async healthCheck(): Promise<AIProviderHealth> {

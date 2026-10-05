@@ -99,3 +99,22 @@ describe('RateLimiter', () => {
     }
   });
 });
+
+describe('CircuitBreaker.trip', () => {
+  it('opens at once and stays open for the hold time, then lets one probe through', async () => {
+    vi.useFakeTimers();
+    try {
+      const breaker = new CircuitBreaker({ failureThreshold: 5, resetTimeoutMs: 1_000 });
+      breaker.trip(60_000);
+      await expect(breaker.execute(async () => 'x')).rejects.toBeInstanceOf(CircuitBreakerOpenError);
+      vi.advanceTimersByTime(30_000); // past resetTimeoutMs, still inside the hold
+      expect(breaker.getState()).toBe('OPEN');
+      vi.advanceTimersByTime(31_000);
+      expect(breaker.getState()).toBe('HALF_OPEN');
+      await expect(breaker.execute(async () => 'ok')).resolves.toBe('ok');
+      expect(breaker.getState()).toBe('CLOSED');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

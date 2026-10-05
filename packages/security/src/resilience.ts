@@ -49,14 +49,26 @@ export class CircuitBreaker {
   private state: CircuitState = 'CLOSED';
   private consecutiveFailures = 0;
   private openedAt = 0;
+  private holdUntil = 0;
 
   constructor(private readonly options: CircuitBreakerOptions) {}
 
   getState(): CircuitState {
+    if (this.state === 'OPEN' && Date.now() < this.holdUntil) return 'OPEN';
     if (this.state === 'OPEN' && Date.now() - this.openedAt >= this.options.resetTimeoutMs) {
       return 'HALF_OPEN';
     }
     return this.state;
+  }
+
+  /**
+   * Opens the circuit at once and keeps it open for \`holdMs\` (then one probe call is let through). For a
+   * failure that will not clear in seconds, e.g. an exhausted quota: waiting on it only makes every caller slow.
+   */
+  trip(holdMs: number): void {
+    this.state = 'OPEN';
+    this.openedAt = Date.now();
+    this.holdUntil = this.openedAt + holdMs;
   }
 
   async execute<T>(fn: () => Promise<T>): Promise<T> {
