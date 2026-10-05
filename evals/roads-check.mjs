@@ -9,6 +9,7 @@ const args = process.argv.slice(2);
 const base = (args[args.indexOf('--osrm') + 1] ?? 'https://router.project-osrm.org').replace(/\/$/, '');
 const profile = DEFAULT_BUSINESS_PROFILE;
 const limit = profile.delivery.maxRoadKm;
+/* global AbortSignal */
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function osrmKm(from, to) {
