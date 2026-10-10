@@ -1,6 +1,11 @@
 'use client';
 
-import { CONTACT_TEAM_LABEL, splitClarifyMessage } from '@ai-concierge/domain';
+import {
+  CONTACT_TEAM_LABEL,
+  splitClarifyMessage,
+  VIP_OFFER_TEXT,
+  VIP_REQUEST_TEXT,
+} from '@ai-concierge/domain';
 import { useEffect, useRef, useState } from 'react';
 import { customerStepFor } from '../../lib/customerJourney';
 import { formatDateTime } from '../../lib/format';
@@ -15,6 +20,32 @@ const SUGGESTIONS = [
   'What cars do you have available?',
   'I want to speak to a person',
 ];
+
+/** The VIP booking choice: the senior team arranges everything personally. */
+function VipOffer({ active, onChoose }: { active: boolean; onChoose: () => void }) {
+  return (
+    <div
+      className="mt-3 rounded-xl border border-copper-300/70 bg-copper-500/15 p-3"
+      data-testid="vip-offer"
+    >
+      <p className="text-xs font-bold uppercase tracking-[0.14em] text-copper-100">
+        ⭐ VIP booking
+      </p>
+      <p className="mt-1 text-sm text-cream-50/90">
+        Our senior team arranges everything for you personally.
+      </p>
+      {active && (
+        <button
+          type="button"
+          onClick={onChoose}
+          className="mt-2 rounded-pill bg-copper-gradient px-4 py-1.5 text-xs font-semibold text-ink-900"
+        >
+          Yes, VIP booking
+        </button>
+      )}
+    </div>
+  );
+}
 
 function TypingBubble() {
   return (
@@ -113,6 +144,16 @@ export function ChatView() {
     if (box && followRef.current) box.scrollTop = box.scrollHeight;
   });
 
+  const vipChosen = chat.messages.some(
+    (message) => message.role === 'CUSTOMER' && /\bvip\b/i.test(message.content),
+  );
+  const canChooseVip =
+    !vipChosen && !chat.session?.escalated && !chat.sending && chat.pending.length === 0;
+  function chooseVip() {
+    followRef.current = true;
+    chat.send(VIP_REQUEST_TEXT);
+  }
+
   function submit() {
     const text = draft.trim();
     if (!text || chat.sending) return;
@@ -128,6 +169,16 @@ export function ChatView() {
           <h1 className="font-display text-sm uppercase tracking-[0.18em] text-cream-50">
             Concierge
           </h1>
+          {canChooseVip && (
+            <button
+              type="button"
+              onClick={chooseVip}
+              className="ml-auto rounded-pill border border-copper-300 bg-copper-500/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-copper-100 transition-colors hover:bg-copper-500/30"
+              data-testid="vip-header-button"
+            >
+              ⭐ VIP booking
+            </button>
+          )}
           <p
             className={`rounded-pill border px-3 py-1 text-[11px] font-medium uppercase tracking-wide ${
               chat.session?.escalated
@@ -164,6 +215,17 @@ export function ChatView() {
               of the rest.
             </p>
             <div className="mt-5 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={chooseVip}
+                className="rounded-2xl border-2 border-copper-300 bg-copper-500/15 px-4 py-3 text-left text-sm text-cream-50 shadow-[0_0_22px_rgba(224,150,90,0.35)] transition-colors hover:bg-copper-500/25"
+                data-testid="vip-start-button"
+              >
+                <span className="block text-xs font-bold uppercase tracking-[0.14em] text-copper-100">
+                  ⭐ VIP booking
+                </span>
+                Our senior team arranges everything for you personally
+              </button>
               {SUGGESTIONS.map((suggestion) => (
                 <button
                   key={suggestion}
@@ -213,6 +275,16 @@ export function ChatView() {
                         chat.send(option);
                       }}
                     />
+                  ) : !mine && message.content.includes(VIP_OFFER_TEXT) ? (
+                    <>
+                      <p className="whitespace-pre-wrap break-words">
+                        {message.content.replace(VIP_OFFER_TEXT, '').trim()}
+                      </p>
+                      <VipOffer
+                        active={message.id === lastMessage?.id && canChooseVip}
+                        onChoose={chooseVip}
+                      />
+                    </>
                   ) : (
                     <p className="whitespace-pre-wrap break-words">{message.content}</p>
                   )}

@@ -140,6 +140,8 @@ export function fetchCustomerDetail(customerId: string): Promise<GetCustomerResp
 
 export function fetchEscalations(params: {
   status?: string;
+  /** `vip`: the VIP bookings section; `standard`: the escalation queue without them. */
+  kind?: 'vip' | 'standard';
   limit?: number;
   offset?: number;
 }): Promise<ListEscalationsResponse> {

@@ -15,6 +15,7 @@ export interface NavItem {
 /** Every dashboard section, in display order. The API enforces the same permissions; hiding is only a courtesy. */
 export const NAV_ITEMS: readonly NavItem[] = [
   { href: '/dashboard', label: 'Home', permission: null },
+  { href: '/dashboard/vip', label: 'VIP bookings', permission: Permission.ESCALATION_READ },
   { href: '/dashboard/escalations', label: 'Escalations', permission: Permission.ESCALATION_READ },
   { href: '/dashboard/journeys', label: 'Journeys', permission: Permission.JOURNEY_READ },
   { href: '/dashboard/quotes', label: 'Quotes', permission: Permission.JOURNEY_READ },

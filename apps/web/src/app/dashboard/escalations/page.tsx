@@ -51,7 +51,8 @@ export default async function EscalationsPage({
 
   let items: EscalationCaseListItem[];
   try {
-    items = (await fetchEscalations({ status, limit: 50, offset: 0 })).items;
+    // VIP bookings have their own section (/dashboard/vip).
+    items = (await fetchEscalations({ status, kind: 'standard', limit: 50, offset: 0 })).items;
   } catch (error) {
     if (error instanceof SessionExpiredError) redirect('/login');
     throw error;

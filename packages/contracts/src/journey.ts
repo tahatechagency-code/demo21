@@ -19,6 +19,8 @@ export type GetJourneyResponse = z.infer<typeof getJourneyResponseSchema>;
 
 export const listEscalationsQuerySchema = z.object({
   status: escalationStatusSchema.optional(),
+  /** `vip`: only the VIP bookings section; `standard`: the escalation queue without them; absent: every case. */
+  kind: z.enum(['vip', 'standard']).optional(),
   limit: z.coerce.number().int().positive().max(100).default(20),
   offset: z.coerce.number().int().nonnegative().default(0),
 });

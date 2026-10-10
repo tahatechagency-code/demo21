@@ -19,3 +19,4 @@ export * from './journey.js';
 export * from './crm.js';
 export * from './attachment.js';
 export * from './notification.js';
+export * from './vip.js';
