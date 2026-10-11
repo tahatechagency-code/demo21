@@ -15,6 +15,8 @@ import { StatTile } from '../../components/ui/StatTile';
 export const metadata = { title: 'Home · AI Concierge' };
 
 const SECTION_COPY: Record<string, string> = {
+  '/dashboard/vip':
+    'Customers who chose a VIP booking — your senior team looks after each one personally in the chat.',
   '/dashboard/escalations':
     'Chats the AI could not understand — answer the customer, then hand the chat back to the AI.',
   '/dashboard/journeys': 'Every customer conversation and where it stands in the 19-step flow.',
