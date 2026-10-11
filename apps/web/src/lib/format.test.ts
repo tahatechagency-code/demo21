@@ -36,16 +36,15 @@ describe('formatEnumLabel', () => {
 });
 
 describe('formatMoney', () => {
-  it('shows whole dollars without decimals and cents with exactly two', () => {
-    expect(formatMoney(1470000, 'USD')).toBe('$14,700');
-    expect(formatMoney(1475250, 'USD')).toBe('$14,752.50');
-    expect(formatMoney(5, 'USD')).toBe('$0.05');
-    expect(formatMoney(0, 'USD')).toBe('$0');
+  it('shows whole dirhams without decimals and fils with exactly two', () => {
+    expect(formatMoney(1470000, 'AED')).toBe('AED 14,700');
+    expect(formatMoney(1475250, 'AED')).toBe('AED 14,752.50');
+    expect(formatMoney(5, 'AED')).toBe('AED 0.05');
+    expect(formatMoney(0, 'AED')).toBe('AED 0');
   });
 
-  it('shows money still stored in dirhams in dollars, never as AED', () => {
-    expect(formatMoney(1470000, 'AED')).toBe('$4,002.72');
-    expect(formatMoney(1470000, 'AED')).not.toMatch(/AED/);
+  it('shows money still stored in dollars in dirhams at the fixed peg', () => {
+    expect(formatMoney(1470000, 'USD')).toBe('AED 53,985.75');
   });
 });
 

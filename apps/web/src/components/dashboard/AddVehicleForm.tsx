@@ -167,7 +167,7 @@ export function AddVehicleForm() {
       </div>
       <div>
         <label htmlFor="dailyRate" className={LABEL}>
-          Rate per day (USD)
+          Rate per day (AED)
         </label>
         <input
           id="dailyRate"
@@ -182,7 +182,7 @@ export function AddVehicleForm() {
       </div>
       <div>
         <label htmlFor="depositAmount" className={LABEL}>
-          Deposit (USD)
+          Deposit (AED)
         </label>
         <input
           id="depositAmount"

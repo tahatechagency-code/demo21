@@ -39,7 +39,7 @@ export default async function DashboardHomePage() {
   }
 
   const { journeys, escalations, automation, quotes } = summary;
-  // Quoted value is one figure in US dollars; a quote in any currency we cannot convert is listed beside it.
+  // Quoted value is one figure in the display currency (AED); a quote in any currency we cannot convert is listed beside it.
   const convertible = quotes.quotedValue.filter((v) => toUsdAmount(1, v.currency) !== null);
   const otherValues = quotes.quotedValue.filter((v) => toUsdAmount(1, v.currency) === null);
   const quotedUsd = convertible.reduce(

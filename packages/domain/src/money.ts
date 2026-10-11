@@ -170,35 +170,41 @@ export function sumMoney(currency: string, values: Money[]): Money {
 }
 
 /**
- * Every price a customer or staff member sees is in US dollars. The business keeps its price list in
- * dollars; a record still stored in dirhams (older vehicles and quotes) is converted for display at
- * the dirham's fixed peg to the dollar (3.6725 AED per USD since 1997), so no screen or message ever
- * mixes currencies. Money stored in any other currency is shown as stored, never guessed at.
+ * Every price a customer or staff member sees is in one display currency (the business currency, AED).
+ * A record stored in a currency pegged to it (US dollars: 3.6725 AED per USD since 1997) is converted
+ * for display at that fixed peg, so no screen or message ever mixes currencies. Money in any other
+ * currency is shown as stored, never guessed at.
  */
-export const DISPLAY_CURRENCY = 'USD';
+export const DISPLAY_CURRENCY = 'AED';
 const PEG_PER_USD: Record<string, number> = { USD: 1, AED: 3.6725 };
 
-/** Whole-dollar amounts show no cents ("$953"); anything else shows two decimals ("$953.03"). */
-function dollars(amount: number): string {
+/** Whole amounts show no decimals ("3,500"); anything else shows two ("3,500.50"). */
+function plain(amount: number): string {
   const rounded = Math.round(amount * 100) / 100;
   return Number.isInteger(rounded)
     ? rounded.toLocaleString('en-US')
     : rounded.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/** The amount in US dollars, or `null` when its currency has no known conversion. */
-export function toUsdAmount(amount: number, currency: string): number | null {
-  const perUsd = PEG_PER_USD[currency.toUpperCase()];
-  return perUsd === undefined ? null : Math.round((amount / perUsd) * 100) / 100;
+/** The amount in the display currency, or `null` when its currency has no fixed conversion. */
+export function toDisplayAmount(amount: number, currency: string): number | null {
+  const from = PEG_PER_USD[currency.toUpperCase()];
+  const to = PEG_PER_USD[DISPLAY_CURRENCY];
+  return from === undefined || to === undefined ? null : Math.round(((amount / from) * to) * 100) / 100;
 }
 
-/** "$1,470" / "$953.03" for a major-unit amount (`dailyRate`, a deposit). */
-export function formatUsdAmount(amount: number, currency: string = DISPLAY_CURRENCY): string {
-  const usd = toUsdAmount(amount, currency);
-  return usd === null ? `${currency} ${dollars(amount)}` : `$${dollars(usd)}`;
+/** "AED 3,500" / "AED 953.03" for a major-unit amount (`dailyRate`, a deposit). */
+export function formatDisplayAmount(amount: number, currency: string = DISPLAY_CURRENCY): string {
+  const shown = toDisplayAmount(amount, currency);
+  return shown === null ? `${currency} ${plain(amount)}` : `${DISPLAY_CURRENCY} ${plain(shown)}`;
 }
 
-/** The same for an integer count of minor units (a quote total, in cents). */
-export function formatUsdMinor(minorUnits: number, currency: string): string {
-  return formatUsdAmount(minorUnits / 100, currency);
+/** The same for an integer count of minor units (a quote total, in fils). */
+export function formatDisplayMinor(minorUnits: number, currency: string): string {
+  return formatDisplayAmount(minorUnits / 100, currency);
 }
+
+// Earlier names, kept so existing screens keep compiling; they now follow the display currency.
+export const toUsdAmount = toDisplayAmount;
+export const formatUsdAmount = formatDisplayAmount;
+export const formatUsdMinor = formatDisplayMinor;

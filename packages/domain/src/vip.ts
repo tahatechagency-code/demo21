@@ -11,6 +11,10 @@ export const VIP_OFFER_TEXT =
 /** What the web chat's VIP button sends; the concierge reads it as a VIP request. */
 export const VIP_REQUEST_TEXT = 'I would like a VIP booking';
 
+/** The concierge's reply when a customer chooses VIP: the team takes the chat, so it always goes out. */
+export const VIP_CONFIRMATION_TEXT =
+  "Thank you for choosing a VIP booking. I've passed it to our senior team right away; they will look after everything personally and reply here in this chat.";
+
 /** The escalation detail of a VIP case; the dashboard's VIP section lists the cases that start with it. */
 export const VIP_CASE_DETAIL = 'VIP customer';
 

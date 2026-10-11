@@ -75,6 +75,8 @@ export const ValidationErrorCode = {
   RETURN_BEFORE_OR_EQUAL_PICKUP: 'RETURN_BEFORE_OR_EQUAL_PICKUP',
   TIMEZONE_MISMATCH: 'TIMEZONE_MISMATCH',
   UNSUPPORTED_LOCATION: 'UNSUPPORTED_LOCATION',
+  /** A place the business knows, but beyond the delivery rule (e.g. more than 100 km from the nearest branch). */
+  OUT_OF_DELIVERY_RANGE: 'OUT_OF_DELIVERY_RANGE',
 } as const;
 
 export const validationErrorCodeSchema = z.enum([
@@ -83,6 +85,7 @@ export const validationErrorCodeSchema = z.enum([
   ValidationErrorCode.RETURN_BEFORE_OR_EQUAL_PICKUP,
   ValidationErrorCode.TIMEZONE_MISMATCH,
   ValidationErrorCode.UNSUPPORTED_LOCATION,
+  ValidationErrorCode.OUT_OF_DELIVERY_RANGE,
 ]);
 export type ValidationErrorCodeValue = z.infer<typeof validationErrorCodeSchema>;
 
@@ -96,6 +99,13 @@ export type ValidationIssue = z.infer<typeof validationErrorSchema>;
 
 export const dateLocationFlagsSchema = z.object({
   promptInjectionDetected: z.boolean(),
+  /**
+   * True only when the customer actually gave a clock time (with AM/PM or 24h) for that end of the rental. A
+   * date alone is stored at the default 10:00 AM, which must never be mistaken for a time the customer chose.
+   * Absent on rows saved before times were tracked.
+   */
+  pickupTimeStated: z.boolean().optional(),
+  returnTimeStated: z.boolean().optional(),
 });
 
 /** Default operating timezone while only Dubai/UAE is supported (see LocationExtractionService). */

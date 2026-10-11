@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { AppError } from './errors.js';
 import {
   formatUsdAmount,
-  formatUsdMinor,
   Money,
   moneySchema,
   sumMoney,
+  toDisplayAmount,
+  formatDisplayAmount,
+  formatDisplayMinor,
   toUsdAmount,
 } from './money.js';
 
@@ -163,21 +165,26 @@ describe('Money', () => {
   });
 });
 
-describe('US dollar display', () => {
-  it('converts dirham amounts at the fixed peg and leaves dollars alone', () => {
-    expect(toUsdAmount(3675, 'AED')).toBe(1000.68);
-    expect(toUsdAmount(1470, 'USD')).toBe(1470);
-    expect(toUsdAmount(10, 'EUR')).toBeNull();
+describe('dirham display', () => {
+  it('converts dollar amounts at the fixed peg and leaves dirhams alone', () => {
+    expect(toDisplayAmount(1000, 'USD')).toBe(3672.5);
+    expect(toDisplayAmount(1470, 'AED')).toBe(1470);
+    expect(toDisplayAmount(10, 'EUR')).toBeNull();
   });
 
-  it('formats whole dollars without cents and others with two decimals', () => {
-    expect(formatUsdAmount(1470)).toBe('$1,470');
-    expect(formatUsdAmount(3500, 'AED')).toBe('$953.03');
-    expect(formatUsdMinor(147_000, 'USD')).toBe('$1,470');
-    expect(formatUsdMinor(1_470_000, 'AED')).toBe('$4,002.72');
+  it('formats whole dirhams without decimals and others with two', () => {
+    expect(formatDisplayAmount(1470)).toBe('AED 1,470');
+    expect(formatDisplayAmount(1000, 'USD')).toBe('AED 3,672.50');
+    expect(formatDisplayMinor(147_000, 'AED')).toBe('AED 1,470');
+    expect(formatDisplayMinor(100_000, 'USD')).toBe('AED 3,672.50');
   });
 
-  it('never presents a currency it cannot convert as dollars', () => {
-    expect(formatUsdAmount(500, 'EUR')).toBe('EUR 500');
+  it('never presents a currency it cannot convert as dirhams', () => {
+    expect(formatDisplayAmount(500, 'EUR')).toBe('EUR 500');
+  });
+
+  it('keeps the earlier USD-named helpers working on the display currency', () => {
+    expect(formatUsdAmount(3500, 'AED')).toBe('AED 3,500');
+    expect(toUsdAmount(1, 'USD')).toBe(3.67);
   });
 });

@@ -18,7 +18,7 @@ export function VehicleEditForm({ vehicle }: { vehicle: FleetVehicle }) {
   return (
     <form action={formAction} className="mt-4 grid grid-cols-2 gap-2 text-xs text-ink-600">
       <label className="col-span-1">
-        <span className="uppercase tracking-wide">Rate / day (USD)</span>
+        <span className="uppercase tracking-wide">Rate / day (AED)</span>
         <input
           name="dailyRate"
           type="number"

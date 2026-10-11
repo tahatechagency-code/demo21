@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DISPLAY_CURRENCY, toUsdAmount } from './money.js';
+import { DISPLAY_CURRENCY, toDisplayAmount } from './money.js';
 
 /**
  * Step 3 — Determine Vehicle. `Vehicle` is a fleet class/model catalog entry
@@ -84,15 +84,15 @@ export const pricingProfileSchema = z.object({
 export type PricingProfile = z.infer<typeof pricingProfileSchema>;
 
 /**
- * The profile with every amount in US dollars: a profile already in dollars is returned as is, one in
- * dirhams is converted at the fixed peg, and a profile in any other currency is left untouched.
+ * The profile with every amount in the display currency: one already in it is returned as is, one in a
+ * pegged currency is converted at the fixed peg, and a profile in any other currency is left untouched.
  */
 export function pricingProfileInUsd(profile: PricingProfile): PricingProfile {
   if (profile.currency === DISPLAY_CURRENCY) return profile;
-  const dailyRate = toUsdAmount(profile.dailyRate, profile.currency);
+  const dailyRate = toDisplayAmount(profile.dailyRate, profile.currency);
   if (dailyRate === null) return profile;
   const convert = (amount: number | undefined): number | undefined =>
-    amount === undefined ? undefined : (toUsdAmount(amount, profile.currency) ?? amount);
+    amount === undefined ? undefined : (toDisplayAmount(amount, profile.currency) ?? amount);
   const weeklyRate = convert(profile.weeklyRate);
   const depositAmount = convert(profile.depositAmount);
   return {

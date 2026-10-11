@@ -12,14 +12,19 @@ import { vehicleSchema } from './vehicle.js';
 
 export const RequiredField = {
   PICKUP_DATE: 'PICKUP_DATE',
+  /** The clock time (with AM/PM) of the pickup, asked only once the pickup date is known. */
+  PICKUP_TIME: 'PICKUP_TIME',
   RETURN_DATE: 'RETURN_DATE',
+  RETURN_TIME: 'RETURN_TIME',
   PICKUP_LOCATION: 'PICKUP_LOCATION',
   VEHICLE: 'VEHICLE',
 } as const;
 
 export const requiredFieldSchema = z.enum([
   RequiredField.PICKUP_DATE,
+  RequiredField.PICKUP_TIME,
   RequiredField.RETURN_DATE,
+  RequiredField.RETURN_TIME,
   RequiredField.PICKUP_LOCATION,
   RequiredField.VEHICLE,
 ]);
@@ -83,6 +88,9 @@ export const collectedBookingInfoSchema = z.object({
   pickupLocation: normalizedLocationSchema.nullable(),
   dropoffLocation: normalizedLocationSchema.nullable(),
   vehicle: vehicleSchema.nullable(),
+  /** The customer gave a clock time for that end, so the stored time is theirs and not the 10:00 AM placeholder. */
+  pickupTimeStated: z.boolean().optional(),
+  returnTimeStated: z.boolean().optional(),
 });
 export type CollectedBookingInfo = z.infer<typeof collectedBookingInfoSchema>;
 
@@ -125,5 +133,8 @@ export function computeCollectedFingerprint(collected: CollectedBookingInfo): st
     returnDate: collected.returnDate,
     pickupLocation: collected.pickupLocation?.normalized ?? null,
     dropoffLocation: collected.dropoffLocation?.normalized ?? null,
+    // Giving the time of a date already known (even the placeholder hour) is progress too.
+    pickupTimeStated: collected.pickupTimeStated ?? null,
+    returnTimeStated: collected.returnTimeStated ?? null,
   });
 }

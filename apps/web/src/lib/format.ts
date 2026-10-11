@@ -23,8 +23,8 @@ export function formatEnumLabel(value: string): string {
 }
 
 /**
- * Every price on every screen is in US dollars: `{ minorUnits: 1470000, currency: 'USD' }` -> `$14,700`,
- * `1475250` -> `$14,752.50`. Amounts are integer minor units, never floats; cents show as two digits
+ * Every price on every screen is in dirhams: `{ minorUnits: 1470000, currency: 'AED' }` -> `AED 14,700`,
+ * `1475250` -> `AED 14,752.50`. Amounts are integer minor units, never floats; cents show as two digits
  * or not at all. Money still stored in dirhams is converted at the fixed peg (see `formatUsdMinor`).
  */
 export const formatMoney = formatUsdMinor;
